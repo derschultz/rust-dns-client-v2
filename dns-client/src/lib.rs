@@ -2,15 +2,12 @@ pub mod dns_client_lib {
     use std::net::{Ipv4Addr,Ipv6Addr};
     use std::fmt;
     use regex::Regex;
-    use std::collections::HashSet;
 
     /* pages used to construct this library:
        https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
        https://datatracker.ietf.org/doc/html/rfc1035
        https://www.rfc-editor.org/rfc/rfc6895.html
        */
-
-    const HEADER_SIZE: usize = 12; 
 
     #[derive(Debug, Eq, PartialEq, Copy, Clone)]
     pub enum DnsOpcode {
@@ -182,6 +179,7 @@ pub mod dns_client_lib {
         }
     }
 
+    #[derive(Debug)]
     pub struct DnsQuestionRecord {
         name: String,
         qtype: DnsQType,
@@ -204,12 +202,14 @@ pub mod dns_client_lib {
             Ok(ret)
         }
 
+        /*
         pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<DnsQuestionRecord, String> {
             let name = String::from("placeholder!");
             let qtype = DnsQType::from_u16(0);
             let qclass = DnsQClass::from_u16(0);
             Ok(DnsQuestionRecord::new(name, qtype, qclass))
         }
+        */
 
     }
 
@@ -219,6 +219,7 @@ pub mod dns_client_lib {
         }
     }
 
+    #[derive(Debug)]
     pub struct DnsARecord {
         addr: Ipv4Addr
     }
@@ -244,6 +245,7 @@ pub mod dns_client_lib {
         }
     }
 
+    #[derive(Debug)]
     pub struct DnsAAAARecord {
         addr: Ipv6Addr
     }
@@ -269,6 +271,7 @@ pub mod dns_client_lib {
         }
     }
 
+    #[derive(Debug)]
     pub struct DnsTXTRecord {
         text: String
     }
@@ -294,6 +297,7 @@ pub mod dns_client_lib {
         }
     }
 
+    #[derive(Debug)]
     pub struct DnsCNAMERecord {
         name: String
     }
@@ -319,6 +323,7 @@ pub mod dns_client_lib {
         }
     }
 
+    #[derive(Debug)]
     pub struct DnsMXRecord {
         preference: u16,
         exchange: String
@@ -345,6 +350,7 @@ pub mod dns_client_lib {
         }
     }
 
+    #[derive(Debug)]
     pub enum DnsResourceRecordEnum {
         // keep this in sync with the DnsQType enum and type-specific structs/impls above.
         A(DnsARecord),
@@ -358,6 +364,13 @@ pub mod dns_client_lib {
            has yet to be implemented in this code */
     }
 
+    impl fmt::Display for DnsResourceRecordEnum {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "{}", self)
+        }
+    }
+
+    #[derive(Debug)]
     pub struct DnsResourceRecord {
         name: String,
         // qtype implied from record field
@@ -383,7 +396,8 @@ pub mod dns_client_lib {
 
     impl fmt::Display for DnsResourceRecord {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "") // TODO implement!
+            write!(f, "RR: name {}; class {}, ttl {}, record {}",
+                   self.name, self.class, self.ttl, self.record)
         }
     }
 
@@ -500,6 +514,14 @@ pub mod dns_client_lib {
         */
     }
 
+    impl fmt::Display for DnsQuery {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            // TODO fix the :? in the next line - have an actual formatter for questions
+            write!(f, "Query:\n Header: {}\nQuestions: {:?}", self.header, self.questions)
+        }
+    }
+
+    #[derive(Debug)]
     pub struct DnsResponse {
         header: DnsHeader,
         questions: Vec<DnsQuestionRecord>,
@@ -518,10 +540,20 @@ pub mod dns_client_lib {
         pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
 
         }
-        */
 
         pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<DnsResponse, String> {
             Err(String::from("placeholder!"))
+        }
+        */
+    }
+
+    impl fmt::Display for DnsResponse {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            // TODO fix the :? in the next line - have an actual formatter for vecs of records
+            let s = format!(
+                "Response:\n Header: {}\nQuestions: {:?}\nAnswers: {:?}\nAuths: {:?}\nAdditional: {:?}",
+                self.header, self.questions, self.answers, self.authorities, self.additionals);
+            write!(f, "{}", s)
         }
     }
 
@@ -656,6 +688,10 @@ pub mod dns_client_lib {
                         // TODO bounds checking w.r.t. buf?
                         twobytes.clone_from_slice(&buf[o .. o+2]);
                         let new_offset = (u16::from_be_bytes(twobytes) & 0x3FFF) as usize;
+                        /* technically it's not codified anywhere that compression pointers HAVE
+                           to be prior in the packet to the current one. if we want to support
+                           this, use a HashSet<usize> to keep track of visited offsets, so as
+                           to avoid loops in compression pointers. */
                         if new_offset > offset {
                             return Err(String::from("Got a forward-pointing compression pointer."));
                         }
