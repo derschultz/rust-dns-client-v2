@@ -1,6 +1,9 @@
 #[cfg(test)]
 mod tests {
 
+    /* https://routley.io/posts/hand-writing-dns-messages/ was very useful
+       when writing tests using raw bytes. */
+
     use dns_client::dns_client_lib::*;
 
     #[test]
@@ -43,56 +46,56 @@ mod tests {
     }
 
     #[test]
-    fn dnsheader_make_options_test() {
+    fn dnsheader_to_u16_test() {
         // flags.
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::QUERY, false, false, false, false, DnsRcode::NOERROR);
-        assert_eq!(header.make_options(), 0x0u16);
+        assert_eq!(header.to_u16(), 0x0u16);
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::QUERY, false, false, false, true, DnsRcode::NOERROR);
-        assert_eq!(header.make_options(), 0x80u16);
+        assert_eq!(header.to_u16(), 0x80u16);
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::QUERY, false, false, true, false, DnsRcode::NOERROR);
-        assert_eq!(header.make_options(), 0x0100u16);
+        assert_eq!(header.to_u16(), 0x0100u16);
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::QUERY, false, true, false, false, DnsRcode::NOERROR);
-        assert_eq!(header.make_options(), 0x200u16);
+        assert_eq!(header.to_u16(), 0x200u16);
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::QUERY, true, false, false, false, DnsRcode::NOERROR);
-        assert_eq!(header.make_options(), 0x400u16);
+        assert_eq!(header.to_u16(), 0x400u16);
 
         // opcodes
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::IQUERY, false, false, false, false, DnsRcode::NOERROR);
-        assert_eq!(header.make_options(), 0x0800u16);
+        assert_eq!(header.to_u16(), 0x0800u16);
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::STATUS, false, false, false, false, DnsRcode::NOERROR);
-        assert_eq!(header.make_options(), 0x1000u16);
+        assert_eq!(header.to_u16(), 0x1000u16);
 
         // rcodes
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::QUERY, false, false, false, false, DnsRcode::FORMERR);
-        assert_eq!(header.make_options(), 0x1u16);
+        assert_eq!(header.to_u16(), 0x1u16);
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::QUERY, false, false, false, false, DnsRcode::SERVFAIL);
-        assert_eq!(header.make_options(), 0x2u16);
+        assert_eq!(header.to_u16(), 0x2u16);
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::QUERY, false, false, false, false, DnsRcode::NAMERR);
-        assert_eq!(header.make_options(), 0x3u16);
+        assert_eq!(header.to_u16(), 0x3u16);
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::QUERY, false, false, false, false, DnsRcode::NOTIMP);
-        assert_eq!(header.make_options(), 0x4u16);
+        assert_eq!(header.to_u16(), 0x4u16);
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::QUERY, false, false, false, false, DnsRcode::REFUSED);
-        assert_eq!(header.make_options(), 0x5u16);
+        assert_eq!(header.to_u16(), 0x5u16);
 
         // and in combination, or with response bit set
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::IQUERY, true, false, true, false, DnsRcode::FORMERR);
-        assert_eq!(header.make_options(), 0x0D01u16);
+        assert_eq!(header.to_u16(), 0x0D01u16);
         let header = DnsHeader::new(
             0xFF, true, DnsOpcode::IQUERY, true, false, true, false, DnsRcode::FORMERR);
-        assert_eq!(header.make_options(), 0x8D01u16);
+        assert_eq!(header.to_u16(), 0x8D01u16);
     }
 
     #[test]
@@ -185,5 +188,68 @@ mod tests {
         let qr = DnsQuestionRecord::new(String::from("goo@gle.com."), DnsQType::A, DnsQClass::IN);
         assert_eq!(qr.to_bytes(), 
                    Err(String::from("'goo@gle.com.' doesn't appear to be a valid DNS name: Got a label (goo@gle) that contains invalid characters.")));
+    }
+
+    #[test]
+    fn dnsquery_to_bytes_test() {
+        let h = DnsHeader::new(0xABCDu16, false, DnsOpcode::QUERY, false, false,
+                               true, false, DnsRcode::NOERROR);
+        let qrv : Vec<DnsQuestionRecord> =
+            vec![DnsQuestionRecord::new(String::from("google.com."), DnsQType::A, DnsQClass::IN)];
+        let q = DnsQuery::new(h, qrv);
+        assert_eq!(q.to_bytes(),
+                   Ok(vec![0xAB, 0xCD, 0x01, 0x00,      // qid, options
+                           0x00, 0x01, 0x00, 0x00,      // qcount, ancount
+                           0x00, 0x00, 0x00, 0x00,      // authcount, addcount
+                           0x06, 0x67, 0x6f, 0x6f,      // len 6, g, o, o
+                           0x67, 0x6c, 0x65, 0x03,      // g, l, e, len 3
+                           0x63, 0x6f, 0x6d, 0x00,      // c, o, m, null
+                           0x00, 0x01, 0x00, 0x01]));   // qtype=A, qclass=IN
+
+        // TODO more tests! diff qtypes/qclasses, header flags/codes
+    }
+
+    #[test]
+    fn dnsheader_from_bytes_test() {
+        let h = DnsHeader::new(0xABCDu16, true, DnsOpcode::QUERY, false,
+                               false, true, true, DnsRcode::NOERROR);
+        let v : Vec<u8> = vec![0xAB, 0xCD, 0x81, 0x80]; // qid, flags
+        assert_eq!(Ok(h), DnsHeader::from_bytes(v, 0));
+        // TODO more tests! diff header options, etc.
+    }
+
+    #[test]
+    fn dns_name_to_string_test() {
+        // normal
+        let buf: Vec<u8> = vec![0x06, 0x67, 0x6f, 0x6f,      // len 6, g, o, o
+                                0x67, 0x6c, 0x65, 0x03,      // g, l, e, len 3
+                                0x63, 0x6f, 0x6d, 0x00];     // c, o, m, null
+        assert_eq!(Ok(String::from("google.com.")), dns_name_to_string(&buf, 0));
+
+        // root
+        let buf: Vec<u8> = vec![0x00]; // null
+        assert_eq!(Ok(String::from(".")), dns_name_to_string(&buf, 0));
+
+        // with compression. start at offset 12
+        let buf: Vec<u8> = vec![0x06, 0x67, 0x6f, 0x6f,     // len 6, g, o, o
+                                0x67, 0x6c, 0x65, 0x03,     // g, l, e, len 3
+                                0x63, 0x6f, 0x6d, 0x00,     // c, o, m, null
+                                0x03, 0x77, 0x77, 0x77,     // len 3, w, w, w
+                                0xc0, 0x00, 0x00];          // ptr to 0, null
+        assert_eq!(Ok(String::from("www.google.com.")), dns_name_to_string(&buf, 12));
+
+        let buf: Vec<u8> = vec![0xC0, 0x00]; // ptr to 0 at 0
+        assert_eq!(Err(String::from("Got a self-referencing compression pointer.")),
+                   dns_name_to_string(&buf, 0));
+
+        let buf: Vec<u8> = vec![0xC0, 0x02]; // ptr to 2 at 0
+        assert_eq!(Err(String::from("Got a forward-pointing compression pointer.")),
+                   dns_name_to_string(&buf, 0));
+
+        let buf: Vec<u8> = vec![0x80, 0x02]; // 10 in top bits of len byte
+        assert_eq!(Err(String::from("Got 10/01 in top bits of dns name length byte.")),
+                   dns_name_to_string(&buf, 0));
+
+        // TODO more tests!
     }
 }
