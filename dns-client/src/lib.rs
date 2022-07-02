@@ -178,7 +178,7 @@ pub mod dns_client_lib {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Eq, PartialEq)]
     pub struct DnsQuestionRecord {
         name: String,
         qtype: DnsQType,
@@ -201,14 +201,28 @@ pub mod dns_client_lib {
             Ok(ret)
         }
 
-        /*
         pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<DnsQuestionRecord, String> {
-            let name = String::from("placeholder!");
-            let qtype = DnsQType::from_u16(0);
-            let qclass = DnsQClass::from_u16(0);
+            let mut o = offset;
+
+            let name = match dns_name_to_string(buf, offset) {
+                Ok((s, bytes_read)) => {
+                    o += bytes_read;
+                    s
+                },
+                Err(e) => return Err(e)
+            };
+            let buflen = buf.len();
+            if o >= buflen || o+4 > buflen {
+                return Err(String::from("Hit buffer bounds reading qtype/class in QuestionRecord."));
+            }
+            let mut twobytes = [0u8, 0u8];
+            twobytes.clone_from_slice(&buf[o .. o+2]);
+            let qtype = DnsQType::from_u16(u16::from_be_bytes(twobytes));
+            twobytes.clone_from_slice(&buf[o+2 .. o+4]);
+            let qclass = DnsQClass::from_u16(u16::from_be_bytes(twobytes));
+
             Ok(DnsQuestionRecord::new(name, qtype, qclass))
         }
-        */
 
     }
 
@@ -434,7 +448,7 @@ pub mod dns_client_lib {
             response | opcode | aa | tc | rd | ra | rcode 
         }
 
-        pub fn from_bytes(buf: Vec<u8>, offset: usize) -> Result<DnsHeader, String> {
+        pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<DnsHeader, String> {
             // check that the fields read here lie inside the buf bounds
             // note that we only read the qid/flags here, so we only need 4 bytes.
             if (offset + 4) > buf.len() {

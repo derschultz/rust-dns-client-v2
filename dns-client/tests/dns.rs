@@ -191,6 +191,31 @@ mod tests {
     }
 
     #[test]
+    fn dnsquestionrecord_from_bytes_test() {
+        let qr = DnsQuestionRecord::new(String::from("google.com."), DnsQType::A, DnsQClass::IN);
+        let buf: Vec<u8> = vec![0x06, 0x67, 0x6f, 0x6f, // length 6, g, o, o
+                                0x67, 0x6c, 0x65, 0x03, // g, l, e, length 3
+                                0x63, 0x6f, 0x6d, 0x00, // c, o, m, null
+                                0x00, 0x01, 0x00, 0x01];// qtype=A, qclass=IN
+        assert_eq!(DnsQuestionRecord::from_bytes(&buf, 0), Ok(qr));
+
+        let buf: Vec<u8> = vec![0x06, 0x67, 0x6f, 0x6f, // length 6, g, o, o
+                                0x67, 0x6c, 0x65, 0x03, // g, l, e, length 3
+                                0x63, 0x6f, 0x6d, 0x00];// c, o, m, null - but no qtype/qclass!
+        assert_eq!(DnsQuestionRecord::from_bytes(&buf, 0),
+                   Err(String::from("Hit buffer bounds reading qtype/class in QuestionRecord.")));
+
+        let buf: Vec<u8> = vec![0x06, 0x67, 0x6f, 0x6f, // length 6, g, o, o
+                                0x67, 0x6c, 0x65, 0x03, // g, l, e, length 3
+                                0x63, 0x6f, 0x6d, 0x00, // c, o, m, null
+                                0x00, 0x01];            // qtype=A, but no qclass!
+        assert_eq!(DnsQuestionRecord::from_bytes(&buf, 0),
+                   Err(String::from("Hit buffer bounds reading qtype/class in QuestionRecord.")));
+
+        // TODO more tests!
+    }
+
+    #[test]
     fn dnsquery_to_bytes_test() {
         let h = DnsHeader::new(0xABCDu16, false, DnsOpcode::QUERY, false, false,
                                true, false, DnsRcode::NOERROR);

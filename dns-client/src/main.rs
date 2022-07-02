@@ -20,12 +20,27 @@ fn main() {
             let mut rbuf = [0; 65535];
             match socket.recv(&mut rbuf) {
                 Ok(response_length) => {
+                    let buf = rbuf.to_vec();
                     println!("got {response_length} bytes back from server.");
-                    // TODO handle response.
-                    match DnsHeader::from_bytes(rbuf.to_vec(), 0) {
-                        Ok(h) => println!("got a header: {h}"),
-                        Err(s) => println!("error parsing response: {s}")
-                    }
+                    let mut offset = 0;
+                    let header = match DnsHeader::from_bytes(&buf, offset) {
+                        Ok(h) => h,
+                        Err(s) => {
+                            println!("error parsing response: {s}");
+                            return;
+                        }
+                    };
+                    println!("Got a header: {header}");
+                    offset += 12;
+                    let question = match DnsQuestionRecord::from_bytes(&buf, offset) {
+                        Ok(q) => q,
+                        Err(s) => {
+                            println!("error parsing response question: {s}");
+                            return;
+                        }
+                    };
+                    println!("Got a question: {question}");
+
                 },
                 Err(e) => println!("Error reading response from server: {e}")
             }
