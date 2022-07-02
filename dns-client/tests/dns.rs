@@ -157,7 +157,7 @@ mod tests {
 
         // label contains non-alphanumeric/hyphen characters
         assert_eq!(is_valid_dns_name(&String::from("a@b.com.")),
-                   Err(String::from("Got a label (a@b) that contains invalid characters.")));
+                   Err(String::from("Got a label (a@b) with a bad character (@).")));
 
         // TODO more tests! lots of corner/error cases for this one.
     }
@@ -187,7 +187,7 @@ mod tests {
 
         let qr = DnsQuestionRecord::new(String::from("goo@gle.com."), DnsQType::A, DnsQClass::IN);
         assert_eq!(qr.to_bytes(), 
-                   Err(String::from("'goo@gle.com.' doesn't appear to be a valid DNS name: Got a label (goo@gle) that contains invalid characters.")));
+                   Err(String::from("'goo@gle.com.' doesn't appear to be a valid DNS name: Got a label (goo@gle) with a bad character (@).")));
     }
 
     #[test]
@@ -224,19 +224,22 @@ mod tests {
         let buf: Vec<u8> = vec![0x06, 0x67, 0x6f, 0x6f,      // len 6, g, o, o
                                 0x67, 0x6c, 0x65, 0x03,      // g, l, e, len 3
                                 0x63, 0x6f, 0x6d, 0x00];     // c, o, m, null
-        assert_eq!(Ok(String::from("google.com.")), dns_name_to_string(&buf, 0));
+        assert_eq!(Ok((String::from("google.com."), 12)), dns_name_to_string(&buf, 0));
 
         // root
         let buf: Vec<u8> = vec![0x00]; // null
-        assert_eq!(Ok(String::from(".")), dns_name_to_string(&buf, 0));
+        assert_eq!(Ok((String::from("."), 1)), dns_name_to_string(&buf, 0));
 
-        // with compression. start at offset 12
+        /* with compression. start at offset 12
+         note that it's 6 bytes read here - 1 len byte, 3 label bytes, and 2 compression bytes.
+         the bytes parsed when following the compression pointer don't count as bytes read!
+         */
         let buf: Vec<u8> = vec![0x06, 0x67, 0x6f, 0x6f,     // len 6, g, o, o
                                 0x67, 0x6c, 0x65, 0x03,     // g, l, e, len 3
                                 0x63, 0x6f, 0x6d, 0x00,     // c, o, m, null
                                 0x03, 0x77, 0x77, 0x77,     // len 3, w, w, w
-                                0xc0, 0x00, 0x00];          // ptr to 0, null
-        assert_eq!(Ok(String::from("www.google.com.")), dns_name_to_string(&buf, 12));
+                                0xc0, 0x00];                // ptr to 0
+        assert_eq!(Ok((String::from("www.google.com."), 6)), dns_name_to_string(&buf, 12));
 
         let buf: Vec<u8> = vec![0xC0, 0x00]; // ptr to 0 at 0
         assert_eq!(Err(String::from("Got a self-referencing compression pointer.")),
@@ -248,6 +251,30 @@ mod tests {
 
         let buf: Vec<u8> = vec![0x80, 0x02]; // 10 in top bits of len byte
         assert_eq!(Err(String::from("Got 10/01 in top bits of dns name length byte.")),
+                   dns_name_to_string(&buf, 0));
+
+        let buf: Vec<u8> = vec![0x40, 0x02]; // 10 in top bits of len byte
+        assert_eq!(Err(String::from("Got 10/01 in top bits of dns name length byte.")),
+                   dns_name_to_string(&buf, 0));
+
+        let buf: Vec<u8> = vec![0xC0]; // ptr, but without followup byte in buf
+        assert_eq!(Err(String::from("Hit buffer bounds when parsing compression ptr.")),
+                   dns_name_to_string(&buf, 0));
+
+        let buf: Vec<u8> = vec![0x02, 0x67]; // len 2, g, then nothing - not enough for label!
+        assert_eq!(Err(String::from("Hit buffer bounds when parsing label.")),
+                   dns_name_to_string(&buf, 0));
+
+        let buf: Vec<u8> = vec![0x01]; // len 1 then nothing - not enough for label!
+        assert_eq!(Err(String::from("Hit buffer bounds when parsing label.")),
+                   dns_name_to_string(&buf, 0));
+
+        let buf: Vec<u8> = vec![0x00]; // root, but starting at offset outside buffer
+        assert_eq!(Err(String::from("Offset outside of buffer bounds.")),
+                   dns_name_to_string(&buf, 1));
+
+        let buf: Vec<u8> = vec![]; // nothing - obvious error
+        assert_eq!(Err(String::from("Can't operate on empty name buffer.")),
                    dns_name_to_string(&buf, 0));
 
         // TODO more tests!

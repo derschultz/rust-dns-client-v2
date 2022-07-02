@@ -1,7 +1,6 @@
 pub mod dns_client_lib {
     use std::net::{Ipv4Addr,Ipv6Addr};
     use std::fmt;
-    use regex::Regex;
 
     /* pages used to construct this library:
        https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
@@ -572,9 +571,6 @@ pub mod dns_client_lib {
 
         let parts: Vec<&str> = stripped.split('.').collect();
 
-        // labels contain only hyphens and alphanumeric characters
-        let re = Regex::new(r"^[a-zA-Z0-9-]*$").unwrap();
-
         for (idx, label) in parts.iter().enumerate() {
 
             let len = label.len();
@@ -588,8 +584,12 @@ pub mod dns_client_lib {
                 return Err(format!("Got a label ({}) that is more than 63 characters.", label));
             }
 
-            if !re.is_match(label) {
-                return Err(format!("Got a label ({}) that contains invalid characters.", label));
+            // labels are only allowed to contain A-Z, a-z, 0-9, and '-'.
+            for c in label.chars() {
+                match c {
+                    'a'..='z' | 'A'..='Z' | '0'..='9' | '-' => {}, // who needs regexes?
+                    _ => return Err(format!("Got a label ({label}) with a bad character ({c})."))
+                }
             }
 
             if label.starts_with("-") {
@@ -636,31 +636,41 @@ pub mod dns_client_lib {
         Ok(ret)
     }
 
-    // XXX how do we signal how many bytes were taken up by the dns name read?
-    pub fn dns_name_to_string(buf: &Vec<u8>, offset: usize) -> Result<String, String> {
-        if offset >= buf.len() {
-            return Err(String::from("offset outside of buffer bounds"));
-        }
-
+    /* Result is String containing name parsed and usize containing bytes read *in this label*.
+       The distinction is important here - if this function is pointed at a label containing
+       a compression pointer, we don't count the bytes of what was read when parsing the area
+       of the buf pointed to by the compression pointer - only the bytes in this label, and just
+       the two bytes for the compression pointer itself. See dns_name_to_string_test in tests.
+    */
+    pub fn dns_name_to_string(buf: &Vec<u8>, offset: usize) -> Result<(String, usize), String> {
         let mut labels: Vec<String> = Vec::new();
+
         /*
-         labels consist of a len byte L , followed (optionally) by a label
-         L=0 is the null label - either root (if alone) or end of a label (also root)
-         0 < L < 64 -> label is L bytes in length, and follows the len byte.
-         64 <= L < 192 -> reserved meaning. probably should err out if this is encountered.
-            this has meaning... but only in a draft. see local-compression link below.
-         192 <= L -> compression ptr. mask off top two bits and consider next byte
-            to get an offset into the packet buffer, from where we need to read another label.
-         see RFC1035, section 4.1.4 for details.
-        */
+           a dns name consists of a series of labels.
+           labels consist of a len byte L , followed (optionally) by other bytes.
+           L=0 is the null label - either root (if alone) or end of a label (also root)
+           0 < L < 64 -> label is L bytes in length, and follows the len byte.
+           64 <= L < 192 -> reserved meaning. probably should err out if this is encountered.
+              this has meaning... but only in a draft. see local-compression link below.
+           192 <= L -> compression ptr. mask off top two bits and consider next byte
+              to get an offset into the packet buffer, from where we need to read another label.
+           see RFC1035, section 4.1.4 for details.
 
-        /* https://datatracker.ietf.org/doc/html/draft-ietf-dnsind-local-compression-05
+           https://datatracker.ietf.org/doc/html/draft-ietf-dnsind-local-compression-05
            according to this site, "It is important that these pointers always point backwards."
-           can we declare as invalid any pointers that are >= the current offset? */
+           can we declare as invalid any pointers that are >= the current offset?
+         */
 
-        fn _helper(buf: &Vec<u8>, offset: usize, labels: &mut Vec<String>) -> Result<(), String> {
-            if offset >= buf.len() {
-                return Err(String::from("offset outside of buffer bounds"));
+        // result usize is how many bytes were read in this call.
+        fn _helper(buf: &Vec<u8>, offset: usize, labels: &mut Vec<String>) -> Result<usize, String> {
+            let buflen = buf.len();
+
+            if buflen == 0 {
+                return Err(String::from("Can't operate on empty name buffer."));
+            }
+
+            if offset >= buflen {
+                return Err(String::from("Offset outside of buffer bounds."));
             }
 
             let mut o = offset; // local mutable copy for work
@@ -668,14 +678,22 @@ pub mod dns_client_lib {
             loop {
                 let lenbyte = &buf[o];
                 match lenbyte {
-                    0 => { break; },  // null byte. done with this name.
+                    0 => { // null byte. done with this name.
+                        o += 1;
+                        break;
+                    },
 
                     1..=63 => { // label. parse it out.
                         o += 1; // done with len byte, go onto label.
-                        // TODO bounds checking w.r.t. buf?
-                        let label = &buf[o .. o+(*lenbyte as usize)];
-                        // TODO validate bytes to utf8?
-                        labels.push(String::from_utf8(label.to_vec()).unwrap());
+                        let top = o + (*lenbyte as usize);
+                        if o > buflen || top > buflen {
+                            return Err(String::from("Hit buffer bounds when parsing label."));
+                        }
+                        let label = &buf[o .. top];
+                        match String::from_utf8(label.to_vec()) {
+                            Ok(s) => labels.push(s),
+                            Err(e) => return Err(e.to_string())
+                        }
                         o += *lenbyte as usize;
                     },
 
@@ -685,8 +703,11 @@ pub mod dns_client_lib {
 
                     192..=255 => { // compression. recurse!
                         let mut twobytes = [0u8, 0u8];
-                        // TODO bounds checking w.r.t. buf?
-                        twobytes.clone_from_slice(&buf[o .. o+2]);
+                        let top = o + 2;
+                        if top > buflen {
+                            return Err(String::from("Hit buffer bounds when parsing compression ptr."));
+                        }
+                        twobytes.clone_from_slice(&buf[o .. top]);
                         let new_offset = (u16::from_be_bytes(twobytes) & 0x3FFF) as usize;
                         /* technically it's not codified anywhere that compression pointers HAVE
                            to be prior in the packet to the current one. if we want to support
@@ -698,22 +719,25 @@ pub mod dns_client_lib {
                         if new_offset == offset {
                             return Err(String::from("Got a self-referencing compression pointer."));
                         }
-                        _helper(&buf, new_offset, labels)?;
+                        /* don't care about count of bytes read in this case, b/c it's from
+                         elsewhere in the packet. */
+                        let _ = _helper(&buf, new_offset, labels)?;
                         o += 2; // compression ptr takes up len byte and next one too.
+                        break; // pointers are always at the end of the labels
                     }
                 }
             }
 
-            Ok(())
+            Ok(o - offset)
         }
 
         match _helper(&buf, offset, &mut labels) {
-            Ok(_) => {
+            Ok(count) => {
                 match labels.len() {
-                    0 => Ok(String::from(".")),
+                    0 => Ok((String::from("."), 1)),
                     _ => {
                         labels.push(String::from(""));
-                        Ok(labels.join("."))
+                        Ok((labels.join("."), count))
                     }
                 }
             },
