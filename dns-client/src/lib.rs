@@ -232,7 +232,7 @@ pub mod dns_client_lib {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Eq, PartialEq)]
     pub struct DnsARecord {
         addr: Ipv4Addr
     }
@@ -241,15 +241,26 @@ pub mod dns_client_lib {
         pub fn new(a: Ipv4Addr) -> DnsARecord {
             DnsARecord { addr: a }
         }
+
         /*
         pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
 
         }
+        */
 
         pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<DnsARecord, String> {
-
+            let buflen = buf.len();
+            if buflen == 0 {
+                return Err(String::from("Got a zero-length buffer."));
+            }
+            if offset >= buflen {
+                return Err(String::from("Got an offset outside of the buffer."));
+            }
+            if (offset + 4) > buflen {
+                return Err(String::from("Got a buffer with too few bytes to read."));
+            }
+            Ok(DnsARecord::new(Ipv4Addr::new(buf[offset], buf[offset+1], buf[offset+2], buf[offset+3])))
         }
-        */
     }
 
     impl fmt::Display for DnsARecord {
@@ -258,7 +269,7 @@ pub mod dns_client_lib {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Eq, PartialEq)]
     pub struct DnsAAAARecord {
         addr: Ipv6Addr
     }
@@ -284,7 +295,7 @@ pub mod dns_client_lib {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Eq, PartialEq)]
     pub struct DnsTXTRecord {
         text: String
     }
@@ -310,7 +321,7 @@ pub mod dns_client_lib {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Eq, PartialEq)]
     pub struct DnsCNAMERecord {
         name: String
     }
@@ -336,7 +347,7 @@ pub mod dns_client_lib {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Eq, PartialEq)]
     pub struct DnsMXRecord {
         preference: u16,
         exchange: String
@@ -363,7 +374,7 @@ pub mod dns_client_lib {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Eq, PartialEq)]
     pub enum DnsResourceRecordEnum {
         // keep this in sync with the DnsQType enum and type-specific structs/impls above.
         A(DnsARecord),
@@ -383,7 +394,7 @@ pub mod dns_client_lib {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Eq, PartialEq)]
     pub struct DnsResourceRecord {
         name: String,
         // qtype implied from record field
@@ -534,7 +545,7 @@ pub mod dns_client_lib {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Eq, PartialEq)]
     pub struct DnsResponse {
         header: DnsHeader,
         questions: Vec<DnsQuestionRecord>,

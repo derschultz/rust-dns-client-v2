@@ -5,6 +5,7 @@ mod tests {
        when writing tests using raw bytes. */
 
     use dns_client::dns_client_lib::*;
+    use std::net::{Ipv4Addr,Ipv6Addr};
 
     #[test]
     fn dnsopcode_from_u8_test() {
@@ -239,7 +240,7 @@ mod tests {
         let h = DnsHeader::new(0xABCDu16, true, DnsOpcode::QUERY, false,
                                false, true, true, DnsRcode::NOERROR);
         let v : Vec<u8> = vec![0xAB, 0xCD, 0x81, 0x80]; // qid, flags
-        assert_eq!(Ok(h), DnsHeader::from_bytes(v, 0));
+        assert_eq!(Ok(h), DnsHeader::from_bytes(&v, 0));
         // TODO more tests! diff header options, etc.
     }
 
@@ -303,5 +304,22 @@ mod tests {
                    dns_name_to_string(&buf, 0));
 
         // TODO more tests!
+    }
+
+    #[test]
+    fn dnsarecord_from_bytes_test() {
+        let buf: Vec<u8> = vec![];
+        assert_eq!(DnsARecord::from_bytes(&buf, 0),
+                   Err(String::from("Got a zero-length buffer.")));
+        let buf: Vec<u8> = vec![0x00];
+        assert_eq!(DnsARecord::from_bytes(&buf, 1),
+                   Err(String::from("Got an offset outside of the buffer.")));
+        let buf: Vec<u8> = vec![0xAB, 0xCD, 0xEF];
+        assert_eq!(DnsARecord::from_bytes(&buf, 0),
+                   Err(String::from("Got a buffer with too few bytes to read.")));
+
+        let arecord = DnsARecord::new(Ipv4Addr::new(0xAB, 0xCD, 0xEF, 0x01));
+        let buf: Vec<u8> = vec![0xAB, 0xCD, 0xEF, 0x01];
+        assert_eq!(DnsARecord::from_bytes(&buf, 0), Ok(arecord));
     }
 }
