@@ -368,11 +368,20 @@ pub mod dns_client_lib {
         pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
 
         }
-
-        pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<DnsCNAMERecord, String> {
-
-        }
         */
+
+        pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<(DnsCNAMERecord, usize), String> {
+            let buflen = buf.len();
+            if buflen == 0 {
+                return Err(String::from("Got a zero-length buffer."));
+            }
+            if offset >= buflen {
+                return Err(String::from("Got an offset outside of the buffer."));
+            }
+
+            let (cname, count) = dns_name_to_string(buf, offset)?;
+            Ok((DnsCNAMERecord::new(cname), count))
+        }
     }
 
     impl fmt::Display for DnsCNAMERecord {
