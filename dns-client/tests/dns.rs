@@ -327,13 +327,13 @@ mod tests {
     #[test]
     fn dnsaaaarecord_from_bytes_test() {
         let buf: Vec<u8> = vec![];
-        assert_eq!(DnsARecord::from_bytes(&buf, 0),
+        assert_eq!(DnsAAAARecord::from_bytes(&buf, 0),
                    Err(String::from("Got a zero-length buffer.")));
         let buf: Vec<u8> = vec![0x00];
-        assert_eq!(DnsARecord::from_bytes(&buf, 1),
+        assert_eq!(DnsAAAARecord::from_bytes(&buf, 1),
                    Err(String::from("Got an offset outside of the buffer.")));
         let buf: Vec<u8> = vec![0xAB, 0xCD, 0xEF];
-        assert_eq!(DnsARecord::from_bytes(&buf, 0),
+        assert_eq!(DnsAAAARecord::from_bytes(&buf, 0),
                    Err(String::from("Got a buffer with too few bytes to read.")));
 
         let aaaarecord = DnsAAAARecord::new(Ipv6Addr::from_str("CAFE::F00D").unwrap());
@@ -341,4 +341,22 @@ mod tests {
                                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x0D];
         assert_eq!(DnsAAAARecord::from_bytes(&buf, 0), Ok(aaaarecord));
     }
+
+    #[test]
+    fn dnstxtrecord_from_bytes_test() {
+        let buf: Vec<u8> = vec![];
+        assert_eq!(DnsTXTRecord::from_bytes(&buf, 0),
+                   Err(String::from("Got a zero-length buffer.")));
+        let buf: Vec<u8> = vec![0x00];
+        assert_eq!(DnsTXTRecord::from_bytes(&buf, 1),
+                   Err(String::from("Got an offset outside of the buffer.")));
+        let buf: Vec<u8> = vec![0x02, 0x74]; // len 2, t, then nothing!
+        assert_eq!(DnsTXTRecord::from_bytes(&buf, 0),
+                   Err(String::from("Got a TXT record with a len byte pointing outside buffer.")));
+
+        let txtrecord = DnsTXTRecord::new(String::from("test"));
+        let buf: Vec<u8> = vec![0x04, 0x74, 0x65, 0x73, 0x74];
+        assert_eq!(DnsTXTRecord::from_bytes(&buf, 0), Ok(txtrecord));
+    }
+
 }

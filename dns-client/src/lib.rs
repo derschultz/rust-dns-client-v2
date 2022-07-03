@@ -326,10 +326,27 @@ pub mod dns_client_lib {
 
         }
 
-        pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<DnsTXTRecord, String> {
-
-        }
         */
+        pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<DnsTXTRecord, String> {
+            let buflen = buf.len();
+            if buflen == 0 {
+                return Err(String::from("Got a zero-length buffer."));
+            }
+            if offset >= buflen {
+                return Err(String::from("Got an offset outside of the buffer."));
+            }
+            let lenbyte = buf[offset]; // first byte is len, followed by that many characters.
+            let txtstart = offset + 1;
+            if txtstart + (lenbyte as usize) > buflen {
+                return Err(String::from("Got a TXT record with a len byte pointing outside buffer."))
+            }
+
+            let txt = match String::from_utf8(buf[txtstart .. txtstart + (lenbyte as usize)].to_vec()) {
+                Ok(s) => s,
+                Err(e) => return Err(e.to_string())
+            };
+            Ok(DnsTXTRecord::new(txt))
+        }
     }
 
     impl fmt::Display for DnsTXTRecord {
