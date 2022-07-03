@@ -6,6 +6,7 @@ mod tests {
 
     use dns_client::dns_client_lib::*;
     use std::net::{Ipv4Addr,Ipv6Addr};
+    use std::str::FromStr;
 
     #[test]
     fn dnsopcode_from_u8_test() {
@@ -321,5 +322,23 @@ mod tests {
         let arecord = DnsARecord::new(Ipv4Addr::new(0xAB, 0xCD, 0xEF, 0x01));
         let buf: Vec<u8> = vec![0xAB, 0xCD, 0xEF, 0x01];
         assert_eq!(DnsARecord::from_bytes(&buf, 0), Ok(arecord));
+    }
+
+    #[test]
+    fn dnsaaaarecord_from_bytes_test() {
+        let buf: Vec<u8> = vec![];
+        assert_eq!(DnsARecord::from_bytes(&buf, 0),
+                   Err(String::from("Got a zero-length buffer.")));
+        let buf: Vec<u8> = vec![0x00];
+        assert_eq!(DnsARecord::from_bytes(&buf, 1),
+                   Err(String::from("Got an offset outside of the buffer.")));
+        let buf: Vec<u8> = vec![0xAB, 0xCD, 0xEF];
+        assert_eq!(DnsARecord::from_bytes(&buf, 0),
+                   Err(String::from("Got a buffer with too few bytes to read.")));
+
+        let aaaarecord = DnsAAAARecord::new(Ipv6Addr::from_str("CAFE::F00D").unwrap());
+        let buf: Vec<u8> = vec![0xCA, 0xFE, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x0D];
+        assert_eq!(DnsAAAARecord::from_bytes(&buf, 0), Ok(aaaarecord));
     }
 }

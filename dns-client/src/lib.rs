@@ -282,11 +282,28 @@ pub mod dns_client_lib {
         pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
 
         }
+        */
 
         pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<DnsAAAARecord, String> {
-
+            let buflen = buf.len();
+            if buflen == 0 {
+                return Err(String::from("Got a zero-length buffer."));
+            }
+            if offset >= buflen {
+                return Err(String::from("Got an offset outside of the buffer."));
+            }
+            if (offset + 16) > buflen {
+                return Err(String::from("Got a buffer with too few bytes to read."));
+            }
+            // TODO this is ugly.
+            let bytes = [buf[offset],    buf[offset+1],  buf[offset+2],  buf[offset+3],
+                         buf[offset+4],  buf[offset+5],  buf[offset+6],  buf[offset+7],
+                         buf[offset+8],  buf[offset+9],  buf[offset+10], buf[offset+11],
+                         buf[offset+12], buf[offset+13], buf[offset+14], buf[offset+15]];
+            let hbo128: u128 = u128::from_be_bytes(bytes);
+            let v6addr = Ipv6Addr::from(hbo128);
+            Ok(DnsAAAARecord::new(v6addr))
         }
-        */
     }
 
     impl fmt::Display for DnsAAAARecord {
