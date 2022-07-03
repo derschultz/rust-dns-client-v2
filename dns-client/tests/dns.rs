@@ -199,7 +199,7 @@ mod tests {
                                 0x67, 0x6c, 0x65, 0x03, // g, l, e, length 3
                                 0x63, 0x6f, 0x6d, 0x00, // c, o, m, null
                                 0x00, 0x01, 0x00, 0x01];// qtype=A, qclass=IN
-        assert_eq!(DnsQuestionRecord::from_bytes(&buf, 0), Ok(qr));
+        assert_eq!(DnsQuestionRecord::from_bytes(&buf, 0), Ok((qr, 16)));
 
         let buf: Vec<u8> = vec![0x06, 0x67, 0x6f, 0x6f, // length 6, g, o, o
                                 0x67, 0x6c, 0x65, 0x03, // g, l, e, length 3

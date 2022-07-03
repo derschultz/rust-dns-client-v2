@@ -201,7 +201,7 @@ pub mod dns_client_lib {
             Ok(ret)
         }
 
-        pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<DnsQuestionRecord, String> {
+        pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<(DnsQuestionRecord, usize), String> {
             let mut o = offset;
 
             let name = match dns_name_to_string(buf, offset) {
@@ -220,8 +220,9 @@ pub mod dns_client_lib {
             let qtype = DnsQType::from_u16(u16::from_be_bytes(twobytes));
             twobytes.clone_from_slice(&buf[o+2 .. o+4]);
             let qclass = DnsQClass::from_u16(u16::from_be_bytes(twobytes));
+            o += 4;
 
-            Ok(DnsQuestionRecord::new(name, qtype, qclass))
+            Ok((DnsQuestionRecord::new(name, qtype, qclass), o - offset))
         }
 
     }
@@ -327,6 +328,8 @@ pub mod dns_client_lib {
         }
 
         */
+
+        // TODO should this return a Result<(DnsTxtRecord,usize), String> like the other from_bytes fns?
         pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<DnsTXTRecord, String> {
             let buflen = buf.len();
             if buflen == 0 {
@@ -468,11 +471,66 @@ pub mod dns_client_lib {
         pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
 
         }
-
-        pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> DnsResourceRecord {
-
-        }
         */
+
+        pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<(DnsResourceRecord,usize), String> {
+            // TODO bounds checking.
+            let mut o = offset;
+
+            let (name, count) = dns_name_to_string(buf, offset)?;
+            o += count;
+
+            let typebytes = [buf[o], buf[o+1]];
+            let qtype = DnsQType::from_u16(u16::from_be_bytes(typebytes));
+            o += 2;
+
+            let classbytes = [buf[o], buf[o+1]];
+            let qclass = DnsQClass::from_u16(u16::from_be_bytes(classbytes));
+            o += 2;
+
+            let ttlbytes = [buf[o], buf[o+1], buf[o+2], buf[o+3]];
+            let ttl = u32::from_be_bytes(ttlbytes);
+            o += 4;
+
+            let rdlenbytes = [buf[o], buf[o+1]];
+            let rdlen = u16::from_be_bytes(rdlenbytes);
+            o += 2;
+
+            let record: DnsResourceRecordEnum = match qtype {
+                /* what if the count of bytes returned by some of the various from_bytes functions
+                   does not equal the rdlen read above?
+                   it might be worth being pedantic about this - if count != rdlen (or rdlen !=
+                   the static lengths used, like 4 bytes for A records), then we should
+                   return an error.
+                 */
+                DnsQType::A => {
+                    let record = DnsARecord::from_bytes(buf, o)?;
+                    DnsResourceRecordEnum::A(record)
+                },
+                DnsQType::AAAA => {
+                    let record = DnsAAAARecord::from_bytes(buf, o)?;
+                    DnsResourceRecordEnum::AAAA(record)
+                },
+                DnsQType::CNAME => {
+                    let (record, _) = DnsCNAMERecord::from_bytes(buf, o)?;
+                    DnsResourceRecordEnum::CNAME(record)
+                },
+                DnsQType::TXT => {
+                    let record = DnsTXTRecord::from_bytes(buf, o)?;
+                    DnsResourceRecordEnum::TXT(record)
+                },
+                DnsQType::MX => {
+                    let (record, _) = DnsMXRecord::from_bytes(buf, o)?;
+                    DnsResourceRecordEnum::MX(record)
+                },
+                _ => {
+                    let vec: Vec<u8> = buf[o .. o + (rdlen as usize)].to_vec();
+                    DnsResourceRecordEnum::Generic(vec)
+                }
+            };
+
+            Ok((DnsResourceRecord::new(name, qclass, ttl, record), o - offset))
+        }
     }
 
     impl fmt::Display for DnsResourceRecord {
@@ -621,11 +679,55 @@ pub mod dns_client_lib {
         pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
 
         }
+        */
 
         pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<DnsResponse, String> {
-            Err(String::from("placeholder!"))
+            // TODO bounds checking
+            let mut o = offset;
+
+            let header = DnsHeader::from_bytes(buf, offset)?;
+            o += 4; // qid, flags
+
+            let qcountbytes = [buf[o], buf[o+1]];
+            let qcount = u16::from_be_bytes(qcountbytes);
+            o += 2;
+            let ancountbytes = [buf[o], buf[o+1]];
+            let ancount = u16::from_be_bytes(ancountbytes);
+            o += 2;
+            let authcountbytes = [buf[o], buf[o+1]];
+            let authcount = u16::from_be_bytes(authcountbytes);
+            o += 2;
+            let addcountbytes = [buf[o], buf[o+1]];
+            let addcount = u16::from_be_bytes(addcountbytes);
+            o += 2;
+
+            let mut questions: Vec<DnsQuestionRecord> = Vec::new();
+            for _ in 0..qcount {
+                let (record, count) = DnsQuestionRecord::from_bytes(buf, o)?;
+                o += count;
+                questions.push(record);
+            }
+            let mut answers: Vec<DnsResourceRecord> = Vec::new();
+            for _ in 0..ancount {
+                let (record, count) = DnsResourceRecord::from_bytes(buf, o)?;
+                o += count;
+                answers.push(record);
+            }
+            let mut authorities: Vec<DnsResourceRecord> = Vec::new();
+            for _ in 0..authcount {
+                let (record, count) = DnsResourceRecord::from_bytes(buf, o)?;
+                o += count;
+                authorities.push(record);
+            }
+            let mut additionals: Vec<DnsResourceRecord> = Vec::new();
+            for _ in 0..addcount {
+                let (record, count) = DnsResourceRecord::from_bytes(buf, o)?;
+                o += count;
+                additionals.push(record);
+            }
+
+            Ok(DnsResponse::new(header, questions, answers, authorities, additionals))
         }
-        */
     }
 
     impl fmt::Display for DnsResponse {

@@ -22,6 +22,7 @@ fn main() {
                 Ok(response_length) => {
                     let buf = rbuf.to_vec();
                     println!("got {response_length} bytes back from server.");
+                    /*
                     let mut offset = 0;
                     let header = match DnsHeader::from_bytes(&buf, offset) {
                         Ok(h) => h,
@@ -32,7 +33,7 @@ fn main() {
                     };
                     println!("Got a header: {header}");
                     offset += 12;
-                    let question = match DnsQuestionRecord::from_bytes(&buf, offset) {
+                    let (question,_) = match DnsQuestionRecord::from_bytes(&buf, offset) {
                         Ok(q) => q,
                         Err(s) => {
                             println!("error parsing response question: {s}");
@@ -40,7 +41,15 @@ fn main() {
                         }
                     };
                     println!("Got a question: {question}");
-
+                    */
+                    let response = match DnsResponse::from_bytes(&buf, 0) {
+                        Ok(r) => r,
+                        Err(e) => {
+                            println!("Error parsing response: {e}");
+                            return;
+                        }
+                    };
+                    println!("Got a response: {response}");
                 },
                 Err(e) => println!("Error reading response from server: {e}")
             }
