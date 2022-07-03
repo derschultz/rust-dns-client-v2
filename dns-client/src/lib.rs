@@ -106,9 +106,17 @@ pub mod dns_client_lib {
         }
     }
 
+    /* to add support for a new qtype, a few things must be done:
+       1) add the new qtype to the DnsQType struct and its functions (from_u16, fmt)
+       2) create the new struct associated with the new qtype, and its functions (from_bytes, new, fmt)
+          see any of the Dns*Record structs for an example of this.
+       3) add an entry to the DnsResourceRecordEnum enum, using the struct from (2)
+       4) add a match arm to DnsResourceRecord::from_bytes for the struct from (2)
+     */
     #[derive(Debug, Eq, PartialEq, Copy, Clone)]
     pub enum DnsQType {
         A = 1,
+        NS = 2,
         CNAME = 5,
         MX = 15,
         TXT = 16,
@@ -120,6 +128,7 @@ pub mod dns_client_lib {
         pub fn from_u16(value: u16) -> DnsQType {
             match value {
                 1 => DnsQType::A,
+                2 => DnsQType::NS,
                 5 => DnsQType::CNAME,
                 15 => DnsQType::MX,
                 16 => DnsQType::TXT,
@@ -133,6 +142,7 @@ pub mod dns_client_lib {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             match self {
                 DnsQType::A => write!(f, "A"),
+                DnsQType::NS => write!(f, "NS"),
                 DnsQType::CNAME => write!(f, "CNAME"),
                 DnsQType::MX => write!(f, "MX"),
                 DnsQType::TXT => write!(f, "TXT"),
@@ -409,7 +419,7 @@ pub mod dns_client_lib {
         }
         */
 
-        pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<(DnsMXRecord, usize) , String> {
+        pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<(DnsMXRecord, usize), String> {
             let buflen = buf.len();
             if buflen == 0 {
                 return Err(String::from("Got a zero-length buffer."));
@@ -435,9 +445,45 @@ pub mod dns_client_lib {
     }
 
     #[derive(Debug, Eq, PartialEq)]
+    pub struct DnsNSRecord {
+        name: String
+    }
+
+    impl DnsNSRecord {
+        pub fn new(n: String) -> DnsNSRecord {
+            DnsNSRecord { name: n }
+        }
+        /*
+        pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
+
+        }
+        */
+
+        pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<(DnsNSRecord, usize), String> {
+            let buflen = buf.len();
+            if buflen == 0 {
+                return Err(String::from("Got a zero-length buffer."));
+            }
+            if offset >= buflen {
+                return Err(String::from("Got an offset outside of the buffer."));
+            }
+
+            let (name, count) = dns_name_to_string(buf, offset)?;
+            Ok((DnsNSRecord::new(name), count))
+        }
+    }
+
+    impl fmt::Display for DnsNSRecord {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "NS: name: {}", self.name)
+        }
+    }
+
+
+    #[derive(Debug, Eq, PartialEq)]
     pub enum DnsResourceRecordEnum {
-        // keep this in sync with the DnsQType enum and type-specific structs/impls above.
         A(DnsARecord),
+        NS(DnsNSRecord),
         AAAA(DnsAAAARecord),
         TXT(DnsTXTRecord),
         CNAME(DnsCNAMERecord),
@@ -474,11 +520,22 @@ pub mod dns_client_lib {
         */
 
         pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<(DnsResourceRecord,usize), String> {
-            // TODO bounds checking.
+            let buflen = buf.len();
+            if buflen == 0 {
+                return Err(String::from("Got a buffer with length of 0."));
+            }
+            if offset >= buflen {
+                return Err(String::from("Got an offset outside the buffer."));
+            }
+
             let mut o = offset;
 
             let (name, count) = dns_name_to_string(buf, offset)?;
             o += count;
+
+            if o + 10 > buflen { // qtype, qclass, ttl, rdlen
+                return Err(String::from("Hit buffer end when parsing resource record."));
+            }
 
             let typebytes = [buf[o], buf[o+1]];
             let qtype = DnsQType::from_u16(u16::from_be_bytes(typebytes));
@@ -506,6 +563,10 @@ pub mod dns_client_lib {
                 DnsQType::A => {
                     let record = DnsARecord::from_bytes(buf, o)?;
                     DnsResourceRecordEnum::A(record)
+                },
+                DnsQType::NS => {
+                    let (record, _) = DnsNSRecord::from_bytes(buf, o)?;
+                    DnsResourceRecordEnum::NS(record)
                 },
                 DnsQType::AAAA => {
                     let record = DnsAAAARecord::from_bytes(buf, o)?;
@@ -561,7 +622,7 @@ pub mod dns_client_lib {
                         tc: tc, rd: rd, ra: ra, rcode: rcode }
         }
 
-        pub fn to_u16(&self) -> u16 {
+        pub fn flags_to_u16(&self) -> u16 {
             // these are all masks to be OR'd together.
             let response: u16 = if self.response { 0x8000 } else { 0 } ;
             let opcode: u16 = ((self.opcode as u16) & 0xf) << 11;
@@ -626,7 +687,7 @@ pub mod dns_client_lib {
             // header
             let qid: u16 = self.header.id;
             ret.extend_from_slice(&qid.to_be_bytes());
-            let options = self.header.to_u16();
+            let options = self.header.flags_to_u16();
             ret.extend_from_slice(&options.to_be_bytes());
 
             // qcount/ancount/nscount/arcount
@@ -682,8 +743,19 @@ pub mod dns_client_lib {
         */
 
         pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<DnsResponse, String> {
-            // TODO bounds checking
+            let buflen = buf.len();
+            if buflen == 0 {
+                return Err(String::from("Got a zero-length buffer."));
+            }
+            if offset >= buflen {
+                return Err(String::from("Got an offset outside the buffer."));
+            }
+
             let mut o = offset;
+
+            if o + 8 > buflen { // header, qcount, ancount, authcount, addcount
+                return Err(String::from("Buf contains too few bytes to read response."));
+            }
 
             let header = DnsHeader::from_bytes(buf, offset)?;
             o += 4; // qid, flags

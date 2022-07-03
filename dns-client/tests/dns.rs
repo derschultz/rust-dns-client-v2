@@ -48,56 +48,56 @@ mod tests {
     }
 
     #[test]
-    fn dnsheader_to_u16_test() {
+    fn dnsheader_flags_to_u16_test() {
         // flags.
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::QUERY, false, false, false, false, DnsRcode::NOERROR);
-        assert_eq!(header.to_u16(), 0x0u16);
+        assert_eq!(header.flags_to_u16(), 0x0u16);
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::QUERY, false, false, false, true, DnsRcode::NOERROR);
-        assert_eq!(header.to_u16(), 0x80u16);
+        assert_eq!(header.flags_to_u16(), 0x80u16);
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::QUERY, false, false, true, false, DnsRcode::NOERROR);
-        assert_eq!(header.to_u16(), 0x0100u16);
+        assert_eq!(header.flags_to_u16(), 0x0100u16);
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::QUERY, false, true, false, false, DnsRcode::NOERROR);
-        assert_eq!(header.to_u16(), 0x200u16);
+        assert_eq!(header.flags_to_u16(), 0x200u16);
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::QUERY, true, false, false, false, DnsRcode::NOERROR);
-        assert_eq!(header.to_u16(), 0x400u16);
+        assert_eq!(header.flags_to_u16(), 0x400u16);
 
         // opcodes
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::IQUERY, false, false, false, false, DnsRcode::NOERROR);
-        assert_eq!(header.to_u16(), 0x0800u16);
+        assert_eq!(header.flags_to_u16(), 0x0800u16);
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::STATUS, false, false, false, false, DnsRcode::NOERROR);
-        assert_eq!(header.to_u16(), 0x1000u16);
+        assert_eq!(header.flags_to_u16(), 0x1000u16);
 
         // rcodes
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::QUERY, false, false, false, false, DnsRcode::FORMERR);
-        assert_eq!(header.to_u16(), 0x1u16);
+        assert_eq!(header.flags_to_u16(), 0x1u16);
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::QUERY, false, false, false, false, DnsRcode::SERVFAIL);
-        assert_eq!(header.to_u16(), 0x2u16);
+        assert_eq!(header.flags_to_u16(), 0x2u16);
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::QUERY, false, false, false, false, DnsRcode::NAMERR);
-        assert_eq!(header.to_u16(), 0x3u16);
+        assert_eq!(header.flags_to_u16(), 0x3u16);
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::QUERY, false, false, false, false, DnsRcode::NOTIMP);
-        assert_eq!(header.to_u16(), 0x4u16);
+        assert_eq!(header.flags_to_u16(), 0x4u16);
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::QUERY, false, false, false, false, DnsRcode::REFUSED);
-        assert_eq!(header.to_u16(), 0x5u16);
+        assert_eq!(header.flags_to_u16(), 0x5u16);
 
         // and in combination, or with response bit set
         let header = DnsHeader::new(
             0xFF, false, DnsOpcode::IQUERY, true, false, true, false, DnsRcode::FORMERR);
-        assert_eq!(header.to_u16(), 0x0D01u16);
+        assert_eq!(header.flags_to_u16(), 0x0D01u16);
         let header = DnsHeader::new(
             0xFF, true, DnsOpcode::IQUERY, true, false, true, false, DnsRcode::FORMERR);
-        assert_eq!(header.to_u16(), 0x8D01u16);
+        assert_eq!(header.flags_to_u16(), 0x8D01u16);
     }
 
     #[test]
@@ -362,7 +362,6 @@ mod tests {
     #[test]
     fn dnscnamerecord_from_bytes_test() {
         // TODO add tests for this. I didn't do it initially b/c the function is trivial.
-
     }
 
     #[test]
@@ -381,7 +380,21 @@ mod tests {
         let buf: Vec<u8> = vec![0xab, 0xcd, 0x08, 0x65, 0x78, 0x63,     // prefs, len 8, e, x, c
                                 0x68, 0x61, 0x6e, 0x67, 0x65, 0x00];    // h, a, n, g, e, null
         assert_eq!(DnsMXRecord::from_bytes(&buf, 0), Ok((mxrecord, 12)));
+    }
 
+    #[test]
+    fn dnsnsrecord_from_bytes_test() {
+        // TODO add tests for this. like DnsCNAMERecord::from_bytes, this function is trivial.
+    }
+
+    #[test]
+    fn dnsresourcerecord_from_bytes_test() {
+        // TODO
+    }
+
+    #[test]
+    fn dnsresponse_from_bytes_test() {
+        // TODO
     }
 
 }
