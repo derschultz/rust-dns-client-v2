@@ -359,4 +359,29 @@ mod tests {
         assert_eq!(DnsTXTRecord::from_bytes(&buf, 0), Ok(txtrecord));
     }
 
+    #[test]
+    fn dnscnamerecord_from_bytes_test() {
+        // TODO add tests for this. I didn't do it initially b/c the function is trivial.
+
+    }
+
+    #[test]
+    fn dnsmxrecord_from_bytes_test() {
+        let buf: Vec<u8> = vec![];
+        assert_eq!(DnsMXRecord::from_bytes(&buf, 0),
+                   Err(String::from("Got a zero-length buffer.")));
+        let buf: Vec<u8> = vec![0x00];
+        assert_eq!(DnsMXRecord::from_bytes(&buf, 1),
+                   Err(String::from("Got an offset outside of the buffer.")));
+        let buf: Vec<u8> = vec![0x02, 0x74]; // prefs, but no exchange!
+        assert_eq!(DnsMXRecord::from_bytes(&buf, 0),
+                   Err(String::from("Got an offset with not enough buf for prefs/exchange.")));
+
+        let mxrecord = DnsMXRecord::new(0xabcd, String::from("exchange."));
+        let buf: Vec<u8> = vec![0xab, 0xcd, 0x08, 0x65, 0x78, 0x63,     // prefs, len 8, e, x, c
+                                0x68, 0x61, 0x6e, 0x67, 0x65, 0x00];    // h, a, n, g, e, null
+        assert_eq!(DnsMXRecord::from_bytes(&buf, 0), Ok((mxrecord, 12)));
+
+    }
+
 }

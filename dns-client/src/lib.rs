@@ -404,11 +404,25 @@ pub mod dns_client_lib {
         pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
 
         }
-
-        pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<DnsMXRecord, String> {
-
-        }
         */
+
+        pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<(DnsMXRecord, usize) , String> {
+            let buflen = buf.len();
+            if buflen == 0 {
+                return Err(String::from("Got a zero-length buffer."));
+            }
+            if offset >= buflen {
+                return Err(String::from("Got an offset outside of the buffer."));
+            }
+            if offset + 3 > buflen { // two bytes for prefs, and at least 1 byte for exchange.
+                return Err(String::from("Got an offset with not enough buf for prefs/exchange."));
+            }
+
+            let prefbytes = [buf[offset], buf[offset+1]];
+            let prefs = u16::from_be_bytes(prefbytes);
+            let (exchange, count) = dns_name_to_string(buf, offset+2)?;
+            Ok((DnsMXRecord::new(prefs, exchange), count + 2))
+        }
     }
 
     impl fmt::Display for DnsMXRecord {
