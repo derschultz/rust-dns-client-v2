@@ -589,6 +589,7 @@ pub mod dns_client_lib {
                     DnsResourceRecordEnum::Generic(vec)
                 }
             };
+            o += rdlen as usize;
 
             Ok((DnsResourceRecord::new(name, qclass, ttl, record), o - offset))
         }
@@ -815,8 +816,6 @@ pub mod dns_client_lib {
     /* given a hostname, validate it as a dns name, per the rules in
        https://datatracker.ietf.org/doc/html/rfc1035#section-2.3.1 */
     pub fn is_valid_dns_name(name: &String) -> Result<(), String> {
-        // use a regex for all this? stack overflow suggests a few:
-        // https://stackoverflow.com/questions/10306690
 
         let stripped = String::from(name.trim());
 

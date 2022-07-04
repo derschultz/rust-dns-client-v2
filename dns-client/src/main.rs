@@ -5,7 +5,7 @@ fn main() {
     let h = DnsHeader::new(0xABCDu16, false, DnsOpcode::QUERY, false, false,
                            true, false, DnsRcode::NOERROR);
     let qrv : Vec<DnsQuestionRecord> =
-        vec![DnsQuestionRecord::new(String::from("google.com."), DnsQType::A, DnsQClass::IN)];
+        vec![DnsQuestionRecord::new(String::from("akasecure.net."), DnsQType::A, DnsQClass::IN)];
     let q = DnsQuery::new(h, qrv);
     let qbytes = match q.to_bytes() {
         Ok(b) => b,
@@ -20,28 +20,8 @@ fn main() {
             let mut rbuf = [0; 65535];
             match socket.recv(&mut rbuf) {
                 Ok(response_length) => {
-                    let buf = rbuf.to_vec();
-                    println!("got {response_length} bytes back from server.");
-                    /*
-                    let mut offset = 0;
-                    let header = match DnsHeader::from_bytes(&buf, offset) {
-                        Ok(h) => h,
-                        Err(s) => {
-                            println!("error parsing response: {s}");
-                            return;
-                        }
-                    };
-                    println!("Got a header: {header}");
-                    offset += 12;
-                    let (question,_) = match DnsQuestionRecord::from_bytes(&buf, offset) {
-                        Ok(q) => q,
-                        Err(s) => {
-                            println!("error parsing response question: {s}");
-                            return;
-                        }
-                    };
-                    println!("Got a question: {question}");
-                    */
+                    let buf = rbuf[0 .. response_length].to_vec();
+                    println!("got {response_length} bytes back from server: {buf:x?}");
                     let response = match DnsResponse::from_bytes(&buf, 0) {
                         Ok(r) => r,
                         Err(e) => {

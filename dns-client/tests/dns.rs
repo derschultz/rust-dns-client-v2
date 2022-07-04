@@ -395,6 +395,41 @@ mod tests {
     #[test]
     fn dnsresponse_from_bytes_test() {
         // TODO
+        let buf: Vec<u8> = vec![
+            // header + counts - 0-11
+            0xab, 0xcd, 0x81, 0x80, 0x0, 0x1, 0x0, 0x2, 0x0, 0x0, 0x0, 0x0,
+            // question (akasecure.net) - 12-30
+            0x9, 0x61, 0x6b, 0x61, 0x73, 0x65, 0x63, 0x75, 0x72, 0x65,  // akasecure
+            0x3, 0x6e, 0x65, 0x74, 0x0, // net, root
+            0x0, 0x1, 0x0, 0x1, // A IN
+            // answer 1 - 31-47
+            0xc0, 0xc,  // ptr to name in question
+            0x0, 0x1, 0x0, 0x1, // A IN
+            0x0, 0x0, 0x1, 0x2c,  // ttl
+            0x0, 0x4,  // rdlen
+            0x48, 0xf6, 0x2, 0x4c, // rdata (A record -> ipv4 addr)
+            // answer 2 - 47-62
+            0xc0, 0xc,  // ptr to name in question
+            0x0, 0x1, 0x0, 0x1,  // A IN
+            0x0, 0x0, 0x1, 0x2c,  // ttl
+            0x0, 0x4, // rdlen
+            0x60, 0x6, 0x72, 0x53]; // rdata (A record -> ipv4 addr)
+        let header = DnsHeader::new(0xabcd, true, DnsOpcode::QUERY, false, false, true,
+                                    true, DnsRcode::NOERROR);
+        let qvec = vec![DnsQuestionRecord::new(String::from("akasecure.net."),
+                                               DnsQType::A, DnsQClass::IN)];
+        let anvec = vec![DnsResourceRecord::new(
+            String::from("akasecure.net."), DnsQClass::IN, 300, DnsResourceRecordEnum::A(
+                DnsARecord::new(Ipv4Addr::new(72,246,2,76))
+            )),
+                         DnsResourceRecord::new(
+            String::from("akasecure.net."), DnsQClass::IN, 300, DnsResourceRecordEnum::A(
+                DnsARecord::new(Ipv4Addr::new(96,6,114,83))
+            ))];
+        let auvec = vec![];
+        let addvec = vec![];
+        let response = DnsResponse::new(header, qvec, anvec, auvec, addvec);
+        assert_eq!(DnsResponse::from_bytes(&buf, 0), Ok(response));
     }
 
 }
