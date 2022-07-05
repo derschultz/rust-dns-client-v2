@@ -5,8 +5,9 @@ fn main() {
     let h = DnsHeader::new(0xABCDu16, false, DnsOpcode::QUERY, false, false,
                            true, false, DnsRcode::NOERROR);
     let qrv : Vec<DnsQuestionRecord> =
-        vec![DnsQuestionRecord::new(String::from("akasecure.net."), DnsQType::A, DnsQClass::IN)];
+        vec![DnsQuestionRecord::new(String::from("akasecure.net."), DnsQType::ANY, DnsQClass::IN)];
     let q = DnsQuery::new(h, qrv);
+    println!("{q}");
     let qbytes = match q.to_bytes() {
         Ok(b) => b,
         Err(e) => { println!("Got an error creating query bytes: {e}"); return }
@@ -16,7 +17,7 @@ fn main() {
     socket.connect("8.8.8.8:53").expect("couldn't connect to server");
     match socket.send(qbytes.as_slice()) {
         Ok(bytes_sent) => {
-            println!("successfully sent {bytes_sent} bytes");
+            //println!("successfully sent {bytes_sent} bytes");
             let mut rbuf = [0; 65535];
             match socket.recv(&mut rbuf) {
                 Ok(response_length) => {
@@ -29,7 +30,7 @@ fn main() {
                             return;
                         }
                     };
-                    println!("Got a response: {response}");
+                    println!("{response}");
                 },
                 Err(e) => println!("Error reading response from server: {e}")
             }

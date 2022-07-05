@@ -110,7 +110,7 @@ pub mod dns_client_lib {
        1) add the new qtype to the DnsQType struct and its functions (from_u16, fmt)
        2) create the new struct associated with the new qtype, and its functions (from_bytes, new, fmt)
           see any of the Dns*Record structs for an example of this.
-       3) add an entry to the DnsResourceRecordEnum enum, using the struct from (2)
+       3) add an entry to the DnsResourceRecordEnum enum and its fmt function, using the struct from (2)
        4) add a match arm to DnsResourceRecord::from_bytes for the struct from (2)
      */
     #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -118,9 +118,11 @@ pub mod dns_client_lib {
         A = 1,
         NS = 2,
         CNAME = 5,
+        SOA = 6,
         MX = 15,
         TXT = 16,
         AAAA = 28,
+        ANY = 255, // no associated RR struct. what would a DnsANYRecord hold?
         RESERVED // catch-all
     }
 
@@ -130,9 +132,11 @@ pub mod dns_client_lib {
                 1 => DnsQType::A,
                 2 => DnsQType::NS,
                 5 => DnsQType::CNAME,
+                6 => DnsQType::SOA,
                 15 => DnsQType::MX,
                 16 => DnsQType::TXT,
                 28 => DnsQType::AAAA,
+                255 => DnsQType::ANY,
                 _ => DnsQType::RESERVED
             }
         }
@@ -144,9 +148,11 @@ pub mod dns_client_lib {
                 DnsQType::A => write!(f, "A"),
                 DnsQType::NS => write!(f, "NS"),
                 DnsQType::CNAME => write!(f, "CNAME"),
+                DnsQType::SOA => write!(f, "SOA"),
                 DnsQType::MX => write!(f, "MX"),
                 DnsQType::TXT => write!(f, "TXT"),
                 DnsQType::AAAA => write!(f, "AAAA"),
+                DnsQType::ANY => write!(f, "ANY"),
                 DnsQType::RESERVED => write!(f, "RESERVED")
             }
         }
@@ -479,10 +485,109 @@ pub mod dns_client_lib {
         }
     }
 
+    #[derive(Debug, Eq, PartialEq)]
+    pub struct DnsSOARecord {
+        mname: String,
+        rname: String,
+        serial: u32,
+        refresh: u32,
+        retry: u32,
+        expire: u32,
+        minimum: u32
+    }
+
+    impl DnsSOARecord {
+        pub fn new(mname: String, rname: String, serial: u32, refresh: u32, retry: u32, 
+                   expire: u32, minimum: u32) -> DnsSOARecord {
+            DnsSOARecord { mname: mname, rname: rname, serial: serial, refresh: refresh,
+                           retry: retry, expire: expire, minimum: minimum }
+        }
+        /*
+        pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
+
+        }
+        */
+
+        pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<(DnsSOARecord, usize), String> {
+            let buflen = buf.len();
+            if buflen == 0 {
+                return Err(String::from("Got a zero-length buffer."));
+            }
+            if offset >= buflen {
+                return Err(String::from("Got an offset outside of the buffer."));
+            }
+
+            // we need at least 22 bytes - 1+ for each name, then 4 for each of the 5 u32s.
+            if offset + 22 > buflen {
+                return Err(String::from("Hit buffer bounds reading SOA RR."));
+            }
+
+            let mut o = offset;
+
+            let (mname, count) = dns_name_to_string(buf, o)?;
+            o += count;
+            let (rname, count) = dns_name_to_string(buf, o)?;
+            o += count;
+
+            let serial = u32::from_be_bytes([buf[o], buf[o+1], buf[o+2], buf[o+3]]);
+            o += 4;
+            let refresh = u32::from_be_bytes([buf[o], buf[o+1], buf[o+2], buf[o+3]]);
+            o += 4;
+            let retry = u32::from_be_bytes([buf[o], buf[o+1], buf[o+2], buf[o+3]]);
+            o += 4;
+            let expire = u32::from_be_bytes([buf[o], buf[o+1], buf[o+2], buf[o+3]]);
+            o += 4;
+            let minimum = u32::from_be_bytes([buf[o], buf[o+1], buf[o+2], buf[o+3]]);
+            o += 4;
+
+            Ok((DnsSOARecord::new(mname, rname, serial, refresh, retry, expire, minimum), o - offset))
+        }
+    }
+
+    impl fmt::Display for DnsSOARecord {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f,
+            "SOA: mname: {}, rname: {}, serial: {}, refresh: {}, retry: {}, expire: {}, minimum: {}", 
+            self.mname, self.rname, self.serial, self.refresh, self.retry, self.expire, self.minimum)
+        }
+    }
+
+    /* skeleton functions for new Dns*Record
+    #[derive(Debug, Eq, PartialEq)]
+    pub struct DnsFOORecord {
+        // TODO
+    }
+
+    impl DnsFOORecord {
+        pub fn new() -> DnsFOORecord {
+            DnsFOORecord { }
+        }
+        /*
+        pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
+
+        }
+        */
+
+        // choose signature based on length (variable or static) of record
+        pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<DnsFOORecord, String> {
+        pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<(DnsFOORecord, usize), String> {
+            let count = 0;
+            Ok(DnsFOORecord::new()) // or
+            Ok((DnsFOORecord::new(), count))
+        }
+    }
+
+    impl fmt::Display for DnsFOORecord {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "FOO: ")
+        }
+    }
+    */
 
     #[derive(Debug, Eq, PartialEq)]
     pub enum DnsResourceRecordEnum {
         A(DnsARecord),
+        SOA(DnsSOARecord),
         NS(DnsNSRecord),
         AAAA(DnsAAAARecord),
         TXT(DnsTXTRecord),
@@ -496,7 +601,16 @@ pub mod dns_client_lib {
 
     impl fmt::Display for DnsResourceRecordEnum {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "{}", self)
+            match self {
+                DnsResourceRecordEnum::A(rr) => { write!(f, "{rr}") },
+                DnsResourceRecordEnum::SOA(rr) => { write!(f, "{rr}") },
+                DnsResourceRecordEnum::NS(rr) => { write!(f, "{rr}") },
+                DnsResourceRecordEnum::AAAA(rr) => { write!(f, "{rr}") },
+                DnsResourceRecordEnum::TXT(rr) => { write!(f, "{rr}") },
+                DnsResourceRecordEnum::CNAME(rr) => { write!(f, "{rr}") },
+                DnsResourceRecordEnum::MX(rr) => { write!(f, "{rr}") },
+                DnsResourceRecordEnum::Generic(v) => { write!(f, "{v:?}") }
+            }
         }
     }
 
@@ -563,6 +677,10 @@ pub mod dns_client_lib {
                 DnsQType::A => {
                     let record = DnsARecord::from_bytes(buf, o)?;
                     DnsResourceRecordEnum::A(record)
+                },
+                DnsQType::SOA => {
+                    let (record, _) = DnsSOARecord::from_bytes(buf, o)?;
+                    DnsResourceRecordEnum::SOA(record)
                 },
                 DnsQType::NS => {
                     let (record, _) = DnsNSRecord::from_bytes(buf, o)?;
@@ -666,7 +784,7 @@ pub mod dns_client_lib {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             let s = format!("QID: {:x}, Opcode: {}, AA: {}, TC: {}, RD: {}, RA: {}, Rcode: {}", 
                             self.id, self.opcode, self.aa, self.tc, self.rd, self.ra, self.rcode);
-            write!(f, "{}", s)
+            write!(f, "{s}")
         }
     }
 
@@ -717,8 +835,14 @@ pub mod dns_client_lib {
 
     impl fmt::Display for DnsQuery {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            // TODO fix the :? in the next line - have an actual formatter for questions
-            write!(f, "Query:\n Header: {}\nQuestions: {:?}", self.header, self.questions)
+            write!(f, "Query:\nHeader: {}\n", self.header)?;
+            if self.questions.len() > 0 {
+                write!(f, "Questions:\n")?;
+                for qr in &self.questions {
+                    write!(f, "  {qr}")?;
+                }
+            }
+            Ok(())
         }
     }
 
@@ -805,11 +929,20 @@ pub mod dns_client_lib {
 
     impl fmt::Display for DnsResponse {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            // TODO fix the :? in the next line - have an actual formatter for vecs of records
-            let s = format!(
-                "Response:\n Header: {}\nQuestions: {:?}\nAnswers: {:?}\nAuths: {:?}\nAdditional: {:?}",
-                self.header, self.questions, self.answers, self.authorities, self.additionals);
-            write!(f, "{}", s)
+            write!(f, "Response:\n  Header: {}\n", self.header)?;
+            for qr in &self.questions {
+                write!(f, "Question: {qr}\n")?;
+            }
+            for rr in &self.answers {
+                write!(f, "Answer: {rr}\n")?;
+            }
+            for rr in &self.authorities {
+                write!(f, "Authority: {rr}\n")?;
+            }
+            for rr in &self.additionals {
+                write!(f, "Additional: {rr}\n")?;
+            }
+            Ok(())
         }
     }
 
