@@ -61,10 +61,12 @@ pub mod dns_client_lib {
         NOTAUTH = 9,
         NOTZONE = 10,
         RESERVED // 11-15
-        /*TODO there's lots of other rcodes. see rfc6895, section 2.3.
+        /*
+          there's lots of other rcodes. see rfc6895, section 2.3.
           basically, there are RRs for which these rcodes also have meaning,
           but they have more than 4 bits to store an rcode, so those other
-          bits are used with type-specific meaning */
+          bits are used with type-specific meaning
+         */
 
     }
 
@@ -108,10 +110,11 @@ pub mod dns_client_lib {
 
     /* to add support for a new qtype, a few things must be done:
        1) add the new qtype to the DnsQType struct and its functions (from_u16, fmt)
-       2) create the new struct associated with the new qtype, and its functions (from_bytes, new, fmt)
+       2) create the new struct associated with the new qtype, and its functions:
+          to/from_bytes, new, fmt
           see any of the Dns*Record structs for an example of this.
        3) add an entry to the DnsResourceRecordEnum enum and its fmt function, using the struct from (2)
-       4) add a match arm to DnsResourceRecord::from_bytes for the struct from (2)
+       4) add a match arm to DnsResourceRecord::to/from_bytes for the struct from (2)
      */
     #[derive(Debug, Eq, PartialEq, Copy, Clone)]
     pub enum DnsQType {
@@ -122,6 +125,7 @@ pub mod dns_client_lib {
         MX = 15,
         TXT = 16,
         AAAA = 28,
+        OPT = 41,
         ANY = 255, // no associated RR struct. what would a DnsANYRecord hold?
         RESERVED // catch-all
     }
@@ -136,6 +140,7 @@ pub mod dns_client_lib {
                 15 => DnsQType::MX,
                 16 => DnsQType::TXT,
                 28 => DnsQType::AAAA,
+                41 => DnsQType::OPT,
                 255 => DnsQType::ANY,
                 _ => DnsQType::RESERVED
             }
@@ -152,6 +157,7 @@ pub mod dns_client_lib {
                 DnsQType::MX => write!(f, "MX"),
                 DnsQType::TXT => write!(f, "TXT"),
                 DnsQType::AAAA => write!(f, "AAAA"),
+                DnsQType::OPT => write!(f, "OPT"),
                 DnsQType::ANY => write!(f, "ANY"),
                 DnsQType::RESERVED => write!(f, "RESERVED")
             }
@@ -160,12 +166,12 @@ pub mod dns_client_lib {
 
     #[derive(Debug, Eq, PartialEq, Copy, Clone)]
     pub enum DnsQClass {
-        IN = 1,
-        CH = 3,
-        HS = 4,
-        NONE = 254,
-        ANY = 255,
-        RESERVED // any values not mentioned above.
+        IN,
+        CH,
+        HS,
+        NONE,
+        ANY,
+        RESERVED(u16) // any values not mentioned above.
     }
 
     impl DnsQClass {
@@ -176,7 +182,19 @@ pub mod dns_client_lib {
                 4 => DnsQClass::HS,
                 254 => DnsQClass::NONE,
                 255 => DnsQClass::ANY,
-                _ => DnsQClass::RESERVED
+                other => DnsQClass::RESERVED(other)
+            }
+        }
+
+        // XXX is there a more idiomatic way to do this? so that one can do "foo as u16"?
+        pub fn to_u16(&self) -> u16 {
+            match &self {
+                DnsQClass::IN => 1,
+                DnsQClass::CH => 3,
+                DnsQClass::HS => 4,
+                DnsQClass::NONE => 254,
+                DnsQClass::ANY => 255,
+                DnsQClass::RESERVED(o) => *o
             }
         }
     }
@@ -189,7 +207,7 @@ pub mod dns_client_lib {
                 DnsQClass::HS => write!(f, "HS"),
                 DnsQClass::NONE => write!(f, "NONE"),
                 DnsQClass::ANY => write!(f, "ANY"),
-                DnsQClass::RESERVED => write!(f, "RESERVED")
+                DnsQClass::RESERVED(o) => write!(f, "RESERVED({o})")
             }
         }
     }
@@ -212,7 +230,7 @@ pub mod dns_client_lib {
             ret.append(&mut name_bytes); // append consumes the target
             let qtype = self.qtype as u16;
             ret.extend_from_slice(&qtype.to_be_bytes());
-            let qclass = self.qclass as u16;
+            let qclass = self.qclass.to_u16();
             ret.extend_from_slice(&qclass.to_be_bytes());
             Ok(ret)
         }
@@ -245,7 +263,7 @@ pub mod dns_client_lib {
 
     impl fmt::Display for DnsQuestionRecord {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "Question: {} {} {}", self.name, self.qtype, self.qclass)
+            write!(f, "{} {} {}", self.name, self.qtype, self.qclass)
         }
     }
 
@@ -259,11 +277,9 @@ pub mod dns_client_lib {
             DnsARecord { addr: a }
         }
 
-        /*
         pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
-
+            Ok(self.addr.octets().to_vec())
         }
-        */
 
         pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<DnsARecord, String> {
             let buflen = buf.len();
@@ -271,7 +287,7 @@ pub mod dns_client_lib {
                 return Err(String::from("Got a zero-length buffer."));
             }
             if offset >= buflen {
-                return Err(String::from("Got an offset outside of the buffer."));
+                return Err(String::from("Got an offset outside of the buffer parsing A record."));
             }
             if (offset + 4) > buflen {
                 return Err(String::from("Got a buffer with too few bytes to read."));
@@ -295,11 +311,10 @@ pub mod dns_client_lib {
         pub fn new(a: Ipv6Addr) -> DnsAAAARecord {
             DnsAAAARecord { addr: a }
         }
-        /*
-        pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
 
+        pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
+            Ok(self.addr.octets().to_vec())
         }
-        */
 
         pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<DnsAAAARecord, String> {
             let buflen = buf.len();
@@ -307,7 +322,7 @@ pub mod dns_client_lib {
                 return Err(String::from("Got a zero-length buffer."));
             }
             if offset >= buflen {
-                return Err(String::from("Got an offset outside of the buffer."));
+                return Err(String::from("Got an offset outside of the buffer parsing AAAA record."));
             }
             if (offset + 16) > buflen {
                 return Err(String::from("Got a buffer with too few bytes to read."));
@@ -338,21 +353,28 @@ pub mod dns_client_lib {
         pub fn new(t: String) -> DnsTXTRecord {
             DnsTXTRecord { text: t }
         }
-        /*
-        pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
 
+        pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
+            /* len byte, then string. string can be up to 255 chars as a character-string.
+               see rfc1035, 3.3.14 (TXT RDATA format) and 3.3 (re: character-string)
+             */
+            if self.text.len() > 255 {
+                return Err(String::from("Got a TXT record with too much data!"));
+            }
+            let lenbyte = self.text.len() as u8;
+            let mut ret: Vec<u8> = Vec::new();
+            ret.push(lenbyte);
+            ret.extend_from_slice(self.text.as_bytes());
+            Ok(ret)
         }
 
-        */
-
-        // TODO should this return a Result<(DnsTxtRecord,usize), String> like the other from_bytes fns?
-        pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<DnsTXTRecord, String> {
+        pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<(DnsTXTRecord, usize), String> {
             let buflen = buf.len();
             if buflen == 0 {
                 return Err(String::from("Got a zero-length buffer."));
             }
             if offset >= buflen {
-                return Err(String::from("Got an offset outside of the buffer."));
+                return Err(String::from("Got an offset outside of the buffer parsing TXT record."));
             }
             let lenbyte = buf[offset]; // first byte is len, followed by that many characters.
             let txtstart = offset + 1;
@@ -364,7 +386,7 @@ pub mod dns_client_lib {
                 Ok(s) => s,
                 Err(e) => return Err(e.to_string())
             };
-            Ok(DnsTXTRecord::new(txt))
+            Ok((DnsTXTRecord::new(txt), (1 + lenbyte) as usize))
         }
     }
 
@@ -383,11 +405,10 @@ pub mod dns_client_lib {
         pub fn new(n: String) -> DnsCNAMERecord {
             DnsCNAMERecord { name: n }
         }
-        /*
-        pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
 
+        pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
+            string_to_dns_name(&self.name)
         }
-        */
 
         pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<(DnsCNAMERecord, usize), String> {
             let buflen = buf.len();
@@ -395,7 +416,7 @@ pub mod dns_client_lib {
                 return Err(String::from("Got a zero-length buffer."));
             }
             if offset >= buflen {
-                return Err(String::from("Got an offset outside of the buffer."));
+                return Err(String::from("Got an offset outside of the buffer parsing CNAME record."));
             }
 
             let (cname, count) = dns_name_to_string(buf, offset)?;
@@ -419,11 +440,18 @@ pub mod dns_client_lib {
         pub fn new(p: u16, e: String) -> DnsMXRecord {
             DnsMXRecord { preference: p, exchange: e }
         }
-        /*
-        pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
 
+        pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
+            let mut ret: Vec<u8> = Vec::new();
+            ret.extend_from_slice(&self.preference.to_be_bytes());
+            match string_to_dns_name(&self.exchange) {
+                Ok(mut namebytes) => {
+                    ret.append(&mut namebytes)
+                },
+                Err(e) => return Err(e)
+            }
+            Ok(ret)
         }
-        */
 
         pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<(DnsMXRecord, usize), String> {
             let buflen = buf.len();
@@ -431,7 +459,7 @@ pub mod dns_client_lib {
                 return Err(String::from("Got a zero-length buffer."));
             }
             if offset >= buflen {
-                return Err(String::from("Got an offset outside of the buffer."));
+                return Err(String::from("Got an offset outside of the buffer parsing MX record."));
             }
             if offset + 3 > buflen { // two bytes for prefs, and at least 1 byte for exchange.
                 return Err(String::from("Got an offset with not enough buf for prefs/exchange."));
@@ -459,11 +487,10 @@ pub mod dns_client_lib {
         pub fn new(n: String) -> DnsNSRecord {
             DnsNSRecord { name: n }
         }
-        /*
-        pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
 
+        pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
+            string_to_dns_name(&self.name)
         }
-        */
 
         pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<(DnsNSRecord, usize), String> {
             let buflen = buf.len();
@@ -471,7 +498,7 @@ pub mod dns_client_lib {
                 return Err(String::from("Got a zero-length buffer."));
             }
             if offset >= buflen {
-                return Err(String::from("Got an offset outside of the buffer."));
+                return Err(String::from("Got an offset outside of the buffer parsing NS record."));
             }
 
             let (name, count) = dns_name_to_string(buf, offset)?;
@@ -502,11 +529,25 @@ pub mod dns_client_lib {
             DnsSOARecord { mname: mname, rname: rname, serial: serial, refresh: refresh,
                            retry: retry, expire: expire, minimum: minimum }
         }
-        /*
-        pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
 
+        pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
+            let mut ret: Vec<u8> = Vec::new();
+            match string_to_dns_name(&self.mname) {
+                Ok(mut mnamebytes) => { ret.append(&mut mnamebytes) },
+                Err(e) => return Err(e)
+            }
+            match string_to_dns_name(&self.rname) {
+                Ok(mut rnamebytes) => { ret.append(&mut rnamebytes) },
+                Err(e) => return Err(e)
+            }
+            ret.extend_from_slice(&self.serial.to_be_bytes());
+            ret.extend_from_slice(&self.refresh.to_be_bytes());
+            ret.extend_from_slice(&self.retry.to_be_bytes());
+            ret.extend_from_slice(&self.expire.to_be_bytes());
+            ret.extend_from_slice(&self.minimum.to_be_bytes());
+
+            Ok(ret)
         }
-        */
 
         pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<(DnsSOARecord, usize), String> {
             let buflen = buf.len();
@@ -514,7 +555,7 @@ pub mod dns_client_lib {
                 return Err(String::from("Got a zero-length buffer."));
             }
             if offset >= buflen {
-                return Err(String::from("Got an offset outside of the buffer."));
+                return Err(String::from("Got an offset outside of the buffer parsing SOA record."));
             }
 
             // we need at least 22 bytes - 1+ for each name, then 4 for each of the 5 u32s.
@@ -549,6 +590,170 @@ pub mod dns_client_lib {
             write!(f,
             "SOA: mname: {}, rname: {}, serial: {}, refresh: {}, retry: {}, expire: {}, minimum: {}", 
             self.mname, self.rname, self.serial, self.refresh, self.retry, self.expire, self.minimum)
+        }
+    }
+
+    #[derive(Debug, Eq, PartialEq)]
+    pub struct DnsOPTRecordOption {
+        code: u16,
+        // length u16 implied by data field
+        data: Vec<u8>
+    }
+
+    impl DnsOPTRecordOption {
+        pub fn new(code: u16, data: Vec<u8>) -> DnsOPTRecordOption {
+            DnsOPTRecordOption { code: code, data: data }
+        }
+
+        pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
+            let mut ret: Vec<u8> = Vec::new();
+            if self.data.len() > u16::MAX as usize {
+                return Err(String::from("Got an OPT record option with too many bytes."));
+            }
+            let datalen = self.data.len() as u16;
+            ret.extend_from_slice(&self.code.to_be_bytes());
+            ret.extend_from_slice(&datalen.to_be_bytes());
+            ret.extend(self.data.iter());
+            Ok(ret)
+        }
+
+        pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<(DnsOPTRecordOption, usize), String> {
+            let buflen = buf.len();
+            if buflen == 0 {
+                return Err(String::from("Got a zero-length buffer."));
+            }
+            if offset >= buflen {
+                return Err(String::from("Got an offset outside of the buffer parsing OPT record option."));
+            }
+            if offset + 4 > buflen {
+                return Err(String::from("hit buffer bounds reading an OPT record option."));
+            }
+
+            let mut o = offset;
+            let mut twobytes = [0u8, 0u8];
+
+            twobytes.clone_from_slice(&buf[o .. o+2]);
+            let code = u16::from_be_bytes(twobytes);
+            o += 2;
+
+            twobytes.clone_from_slice(&buf[o .. o+2]);
+            let optlen = u16::from_be_bytes(twobytes);
+            o += 2;
+
+            if o + (optlen as usize) > buflen {
+                return Err(String::from("hit buffer bounds reading an OPT record option data."));
+            }
+
+            let data: Vec<u8> = buf[o .. o+(optlen as usize)].to_vec();
+            Ok((DnsOPTRecordOption::new(code, data), o - offset))
+        }
+    }
+
+    impl fmt::Display for DnsOPTRecordOption {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "{} {:x?}", self.code, self.data)
+        }
+    }
+
+    #[derive(Debug, Eq, PartialEq)]
+    pub struct DnsOPTRecord {
+        options: Vec<DnsOPTRecordOption>
+    }
+
+    impl DnsOPTRecord {
+        pub fn new(options: Vec<DnsOPTRecordOption>) -> DnsOPTRecord {
+            DnsOPTRecord { options: options }
+        }
+
+        pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
+            let mut ret: Vec<u8> = Vec::new();
+            for o in &self.options {
+                ret.append(&mut o.to_bytes()?);
+            }
+            Ok(ret)
+        }
+
+        pub fn from_bytes(buf: &Vec<u8>, offset: usize, rdlen: usize) ->
+            Result<(DnsOPTRecord, usize), String> {
+            let mut options: Vec<DnsOPTRecordOption> = Vec::new();
+            if rdlen == 0 {
+                return Ok((DnsOPTRecord::new(options), 0));
+            }
+
+            let buflen = buf.len();
+            if buflen == 0 {
+                return Err(String::from("Got a zero-length buffer."));
+            }
+            if offset >= buflen {
+                return Err(format!("Got an offset {offset} outside of the buffer (len: {}) parsing OPT record.", buflen));
+            }
+            let end = offset + rdlen;
+            if end > buflen {
+                return Err(String::from("Got an offset+rdlen pointing outside a buffer."));
+            }
+
+            let mut o = offset;
+
+            loop {
+                if o == end { break; }
+                if o > end { // this should never happen - it means we read past what rdlen told us to.
+                    return Err(String::from("went past rdlen in buf when parsing OPT record option."));
+                }
+                let (option, bytes_read) = DnsOPTRecordOption::from_bytes(buf, o)?;
+                options.push(option);
+                o += bytes_read;
+            }
+
+            Ok((DnsOPTRecord::new(options), o - offset))
+        }
+    }
+
+    impl fmt::Display for DnsOPTRecord {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "OPT: ")?;
+            for o in &self.options {
+                write!(f, "{o} ")?;
+            }
+            Ok(())
+        }
+    }
+
+    /* this is the struct to hold dns records for which we don't yet have an associated struct. */
+    #[derive(Debug, Eq, PartialEq)]
+    pub struct DnsGenericRecord {
+        qtype: u16,
+        v: Vec<u8>
+    }
+
+    impl DnsGenericRecord {
+        pub fn new(q: u16, v: Vec<u8>) -> DnsGenericRecord {
+            DnsGenericRecord { qtype: q, v: v }
+        }
+
+        pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
+            Ok(self.v.clone())
+        }
+
+        pub fn from_bytes(buf: &Vec<u8>, offset: usize, len: usize, qtype: u16) ->
+                          Result<DnsGenericRecord, String> {
+            let buflen = buf.len();
+            if buflen == 0 {
+                return Err(String::from("Got a zero-length buffer parsing generic record."));
+            }
+            if offset >= buflen {
+                return Err(String::from("Got an offset outside the buffer parsing generic record."));
+            }
+            if offset + len > buflen {
+                return Err(String::from("ran out of bytes parsing generic record."));
+            }
+
+            Ok(DnsGenericRecord::new(qtype, buf[offset .. offset+len].to_vec()))
+        }
+    }
+
+    impl fmt::Display for DnsGenericRecord {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "Generic (qtype={}): {:x?}", self.qtype, self.v)
         }
     }
 
@@ -587,13 +792,14 @@ pub mod dns_client_lib {
     #[derive(Debug, Eq, PartialEq)]
     pub enum DnsResourceRecordEnum {
         A(DnsARecord),
-        SOA(DnsSOARecord),
         NS(DnsNSRecord),
-        AAAA(DnsAAAARecord),
-        TXT(DnsTXTRecord),
         CNAME(DnsCNAMERecord),
+        SOA(DnsSOARecord),
         MX(DnsMXRecord),
-        Generic(Vec<u8>) 
+        TXT(DnsTXTRecord),
+        AAAA(DnsAAAARecord),
+        OPT(DnsOPTRecord),
+        Generic(DnsGenericRecord)
         /* Generic is a string of bytes from the wire (network order), and it's meant to 
            handle records for which the struct associated with the type
            has yet to be implemented in this code */
@@ -602,14 +808,15 @@ pub mod dns_client_lib {
     impl fmt::Display for DnsResourceRecordEnum {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             match self {
-                DnsResourceRecordEnum::A(rr) => { write!(f, "{rr}") },
-                DnsResourceRecordEnum::SOA(rr) => { write!(f, "{rr}") },
-                DnsResourceRecordEnum::NS(rr) => { write!(f, "{rr}") },
-                DnsResourceRecordEnum::AAAA(rr) => { write!(f, "{rr}") },
-                DnsResourceRecordEnum::TXT(rr) => { write!(f, "{rr}") },
-                DnsResourceRecordEnum::CNAME(rr) => { write!(f, "{rr}") },
-                DnsResourceRecordEnum::MX(rr) => { write!(f, "{rr}") },
-                DnsResourceRecordEnum::Generic(v) => { write!(f, "{v:?}") }
+                DnsResourceRecordEnum::A(rr) => write!(f, "{rr}"),
+                DnsResourceRecordEnum::NS(rr) => write!(f, "{rr}"),
+                DnsResourceRecordEnum::CNAME(rr) => write!(f, "{rr}"),
+                DnsResourceRecordEnum::SOA(rr) => write!(f, "{rr}"),
+                DnsResourceRecordEnum::MX(rr) => write!(f, "{rr}"),
+                DnsResourceRecordEnum::TXT(rr) => write!(f, "{rr}"),
+                DnsResourceRecordEnum::AAAA(rr) => write!(f, "{rr}"),
+                DnsResourceRecordEnum::OPT(rr) => write!(f, "{rr}"),
+                DnsResourceRecordEnum::Generic(rr) => write!(f, "{rr}")
             }
         }
     }
@@ -617,29 +824,56 @@ pub mod dns_client_lib {
     #[derive(Debug, Eq, PartialEq)]
     pub struct DnsResourceRecord {
         name: String,
-        // qtype implied from record field
+        qtype: DnsQType,
         class: DnsQClass,
         ttl: u32,
         record: DnsResourceRecordEnum
     }
 
     impl DnsResourceRecord {
-        pub fn new(n: String, c: DnsQClass, t: u32, r: DnsResourceRecordEnum) -> DnsResourceRecord {
-            DnsResourceRecord { name: n, class: c, ttl: t, record: r }
+        pub fn new(n: String, t: DnsQType, c: DnsQClass, ttl: u32, r: DnsResourceRecordEnum)
+            -> DnsResourceRecord {
+            DnsResourceRecord { name: n, qtype: t, class: c, ttl: ttl, record: r }
         }
-        /*
+
         pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
+            let mut ret: Vec<u8> = Vec::new();
+            ret.append(&mut string_to_dns_name(&self.name)?);
+            let qtype = self.qtype as u16;
+            ret.extend_from_slice(&qtype.to_be_bytes());
+            let qclass = self.class.to_u16();
+            ret.extend_from_slice(&qclass.to_be_bytes());
+            ret.extend_from_slice(&self.ttl.to_be_bytes());
 
+            let mut rdata: Vec<u8> = match &self.record {
+                DnsResourceRecordEnum::A(rr) => { rr.to_bytes()? },
+                DnsResourceRecordEnum::NS(rr) => { rr.to_bytes()? },
+                DnsResourceRecordEnum::CNAME(rr) => { rr.to_bytes()? },
+                DnsResourceRecordEnum::SOA(rr) => { rr.to_bytes()? },
+                DnsResourceRecordEnum::MX(rr) => { rr.to_bytes()? },
+                DnsResourceRecordEnum::TXT(rr) => { rr.to_bytes()? },
+                DnsResourceRecordEnum::AAAA(rr) => { rr.to_bytes()? },
+                DnsResourceRecordEnum::OPT(rr) => { rr.to_bytes()? },
+                DnsResourceRecordEnum::Generic(rr) => { rr.to_bytes()? },
+            };
+            if rdata.len() > u16::MAX as usize {
+                return Err(String::from("Got an rdlen that doesn't fit in a u16!"));
+            }
+
+            let rdlen = rdata.len() as u16;
+            ret.extend_from_slice(&rdlen.to_be_bytes());
+            ret.append(&mut rdata);
+
+            Ok(ret)
         }
-        */
 
-        pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<(DnsResourceRecord,usize), String> {
+        pub fn from_bytes(buf: &Vec<u8>, offset: usize) -> Result<(DnsResourceRecord, usize), String> {
             let buflen = buf.len();
             if buflen == 0 {
                 return Err(String::from("Got a buffer with length of 0."));
             }
             if offset >= buflen {
-                return Err(String::from("Got an offset outside the buffer."));
+                return Err(String::from("Got an offset outside the buffer parsing an RR."));
             }
 
             let mut o = offset;
@@ -652,7 +886,8 @@ pub mod dns_client_lib {
             }
 
             let typebytes = [buf[o], buf[o+1]];
-            let qtype = DnsQType::from_u16(u16::from_be_bytes(typebytes));
+            let typeu16 = u16::from_be_bytes(typebytes);
+            let qtype = DnsQType::from_u16(typeu16);
             o += 2;
 
             let classbytes = [buf[o], buf[o+1]];
@@ -678,45 +913,48 @@ pub mod dns_client_lib {
                     let record = DnsARecord::from_bytes(buf, o)?;
                     DnsResourceRecordEnum::A(record)
                 },
-                DnsQType::SOA => {
-                    let (record, _) = DnsSOARecord::from_bytes(buf, o)?;
-                    DnsResourceRecordEnum::SOA(record)
-                },
                 DnsQType::NS => {
                     let (record, _) = DnsNSRecord::from_bytes(buf, o)?;
                     DnsResourceRecordEnum::NS(record)
-                },
-                DnsQType::AAAA => {
-                    let record = DnsAAAARecord::from_bytes(buf, o)?;
-                    DnsResourceRecordEnum::AAAA(record)
                 },
                 DnsQType::CNAME => {
                     let (record, _) = DnsCNAMERecord::from_bytes(buf, o)?;
                     DnsResourceRecordEnum::CNAME(record)
                 },
-                DnsQType::TXT => {
-                    let record = DnsTXTRecord::from_bytes(buf, o)?;
-                    DnsResourceRecordEnum::TXT(record)
+                DnsQType::SOA => {
+                    let (record, _) = DnsSOARecord::from_bytes(buf, o)?;
+                    DnsResourceRecordEnum::SOA(record)
                 },
                 DnsQType::MX => {
                     let (record, _) = DnsMXRecord::from_bytes(buf, o)?;
                     DnsResourceRecordEnum::MX(record)
                 },
+                DnsQType::TXT => {
+                    let (record, _) = DnsTXTRecord::from_bytes(buf, o)?;
+                    DnsResourceRecordEnum::TXT(record)
+                },
+                DnsQType::AAAA => {
+                    let record = DnsAAAARecord::from_bytes(buf, o)?;
+                    DnsResourceRecordEnum::AAAA(record)
+                },
+                DnsQType::OPT => {
+                    let (record, _) = DnsOPTRecord::from_bytes(buf, o, rdlen as usize)?;
+                    DnsResourceRecordEnum::OPT(record)
+                },
                 _ => {
-                    let vec: Vec<u8> = buf[o .. o + (rdlen as usize)].to_vec();
-                    DnsResourceRecordEnum::Generic(vec)
+                    let record = DnsGenericRecord::from_bytes(buf, o, rdlen as usize, typeu16)?;
+                    DnsResourceRecordEnum::Generic(record)
                 }
             };
             o += rdlen as usize;
 
-            Ok((DnsResourceRecord::new(name, qclass, ttl, record), o - offset))
+            Ok((DnsResourceRecord::new(name, qtype, qclass, ttl, record), o - offset))
         }
     }
 
     impl fmt::Display for DnsResourceRecord {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "RR: name {}; class {}, ttl {}, record {}",
-                   self.name, self.class, self.ttl, self.record)
+            write!(f, "{} {} ttl={} {}", self.name, self.class, self.ttl, self.record)
         }
     }
 
@@ -790,13 +1028,15 @@ pub mod dns_client_lib {
 
     pub struct DnsQuery {
         header: DnsHeader,
-        questions: Vec<DnsQuestionRecord>
+        questions: Vec<DnsQuestionRecord>,
+        additionals: Option<Vec<DnsResourceRecord>>
     }
 
     impl DnsQuery {
 
-        pub fn new(h: DnsHeader, q: Vec<DnsQuestionRecord>) -> DnsQuery {
-            DnsQuery { header: h, questions: q }
+        pub fn new(h: DnsHeader, q: Vec<DnsQuestionRecord>,
+                   add: Option<Vec<DnsResourceRecord>>) -> DnsQuery {
+            DnsQuery { header: h, questions: q, additionals: add }
         }
         
         // output bytes are network-order, ready to be written to wire.
@@ -815,18 +1055,28 @@ pub mod dns_client_lib {
             let other_count = 0u16;
             ret.extend_from_slice(&other_count.to_be_bytes());
             ret.extend_from_slice(&other_count.to_be_bytes());
-            ret.extend_from_slice(&other_count.to_be_bytes());
+            let addcount = match &self.additionals {
+                Some(a) => a.len() as u16,
+                None => 0u16
+            };
+            ret.extend_from_slice(&addcount.to_be_bytes());
 
             for question in &self.questions {
                 let mut bytes = question.to_bytes()?;
                 ret.append(&mut bytes);
             }
+
+            if let Some(additionals) = &self.additionals {
+                for rr in additionals {
+                    let mut bytes = rr.to_bytes()?;
+                    ret.append(&mut bytes);
+                }
+            }
             
             Ok(ret)
         }
 
-        // expects network-order input bytes, as if just read from wire.
-        /* TODO implement
+        /*
         pub fn from_bytes(bytes: Vec<u8>) -> Result(DnsHeader, String) {
 
         }
@@ -835,11 +1085,13 @@ pub mod dns_client_lib {
 
     impl fmt::Display for DnsQuery {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "Query:\nHeader: {}\n", self.header)?;
-            if self.questions.len() > 0 {
-                write!(f, "Questions:\n")?;
-                for qr in &self.questions {
-                    write!(f, "  {qr}")?;
+            write!(f, "Query:\n  Header: {}\n", self.header)?;
+            for qr in &self.questions {
+                write!(f, "  Question: {qr}\n")?;
+            }
+            if let Some(additionals) = &self.additionals {
+                for rr in additionals {
+                    write!(f, "  Additional: {rr}\n")?;
                 }
             }
             Ok(())
@@ -861,7 +1113,7 @@ pub mod dns_client_lib {
             DnsResponse { header: h, questions: q, answers: an, authorities: auth, additionals: add }
         }
 
-        /* TODO implement!
+        /*
         pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
 
         }
@@ -873,7 +1125,7 @@ pub mod dns_client_lib {
                 return Err(String::from("Got a zero-length buffer."));
             }
             if offset >= buflen {
-                return Err(String::from("Got an offset outside the buffer."));
+                return Err(String::from("Got an offset outside the buffer parsing DNS response."));
             }
 
             let mut o = offset;
@@ -917,11 +1169,13 @@ pub mod dns_client_lib {
                 authorities.push(record);
             }
             let mut additionals: Vec<DnsResourceRecord> = Vec::new();
-            for _ in 0..addcount {
+            for _c in 0..addcount {
                 let (record, count) = DnsResourceRecord::from_bytes(buf, o)?;
                 o += count;
                 additionals.push(record);
             }
+
+            // XXX should we check that o == buf.len() ? if o < buf.len(), we have unused bytes.
 
             Ok(DnsResponse::new(header, questions, answers, authorities, additionals))
         }
@@ -931,16 +1185,16 @@ pub mod dns_client_lib {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, "Response:\n  Header: {}\n", self.header)?;
             for qr in &self.questions {
-                write!(f, "Question: {qr}\n")?;
+                write!(f, "  Question: {qr}\n")?;
             }
             for rr in &self.answers {
-                write!(f, "Answer: {rr}\n")?;
+                write!(f, "  Answer: {rr}\n")?;
             }
             for rr in &self.authorities {
-                write!(f, "Authority: {rr}\n")?;
+                write!(f, "  Authority: {rr}\n")?;
             }
             for rr in &self.additionals {
-                write!(f, "Additional: {rr}\n")?;
+                write!(f, "  Additional: {rr}\n")?;
             }
             Ok(())
         }

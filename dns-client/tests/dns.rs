@@ -223,7 +223,7 @@ mod tests {
                                true, false, DnsRcode::NOERROR);
         let qrv : Vec<DnsQuestionRecord> =
             vec![DnsQuestionRecord::new(String::from("google.com."), DnsQType::A, DnsQClass::IN)];
-        let q = DnsQuery::new(h, qrv);
+        let q = DnsQuery::new(h, qrv, None);
         assert_eq!(q.to_bytes(),
                    Ok(vec![0xAB, 0xCD, 0x01, 0x00,      // qid, options
                            0x00, 0x01, 0x00, 0x00,      // qcount, ancount
@@ -314,7 +314,7 @@ mod tests {
                    Err(String::from("Got a zero-length buffer.")));
         let buf: Vec<u8> = vec![0x00];
         assert_eq!(DnsARecord::from_bytes(&buf, 1),
-                   Err(String::from("Got an offset outside of the buffer.")));
+                   Err(String::from("Got an offset outside of the buffer parsing A record.")));
         let buf: Vec<u8> = vec![0xAB, 0xCD, 0xEF];
         assert_eq!(DnsARecord::from_bytes(&buf, 0),
                    Err(String::from("Got a buffer with too few bytes to read.")));
@@ -349,14 +349,15 @@ mod tests {
                    Err(String::from("Got a zero-length buffer.")));
         let buf: Vec<u8> = vec![0x00];
         assert_eq!(DnsTXTRecord::from_bytes(&buf, 1),
-                   Err(String::from("Got an offset outside of the buffer.")));
+                   Err(String::from("Got an offset outside of the buffer parsing TXT record.")));
         let buf: Vec<u8> = vec![0x02, 0x74]; // len 2, t, then nothing!
         assert_eq!(DnsTXTRecord::from_bytes(&buf, 0),
                    Err(String::from("Got a TXT record with a len byte pointing outside buffer.")));
 
         let txtrecord = DnsTXTRecord::new(String::from("test"));
         let buf: Vec<u8> = vec![0x04, 0x74, 0x65, 0x73, 0x74];
-        assert_eq!(DnsTXTRecord::from_bytes(&buf, 0), Ok(txtrecord));
+        let (parsed_record, count) = DnsTXTRecord::from_bytes(&buf, 0).unwrap();
+        assert_eq!(parsed_record, txtrecord);
     }
 
     #[test]
@@ -371,7 +372,7 @@ mod tests {
                    Err(String::from("Got a zero-length buffer.")));
         let buf: Vec<u8> = vec![0x00];
         assert_eq!(DnsMXRecord::from_bytes(&buf, 1),
-                   Err(String::from("Got an offset outside of the buffer.")));
+                   Err(String::from("Got an offset outside of the buffer parsing MX record.")));
         let buf: Vec<u8> = vec![0x02, 0x74]; // prefs, but no exchange!
         assert_eq!(DnsMXRecord::from_bytes(&buf, 0),
                    Err(String::from("Got an offset with not enough buf for prefs/exchange.")));
@@ -419,11 +420,11 @@ mod tests {
         let qvec = vec![DnsQuestionRecord::new(String::from("akasecure.net."),
                                                DnsQType::A, DnsQClass::IN)];
         let anvec = vec![DnsResourceRecord::new(
-            String::from("akasecure.net."), DnsQClass::IN, 300, DnsResourceRecordEnum::A(
+            String::from("akasecure.net."), DnsQType::A, DnsQClass::IN, 300, DnsResourceRecordEnum::A(
                 DnsARecord::new(Ipv4Addr::new(72,246,2,76))
             )),
                          DnsResourceRecord::new(
-            String::from("akasecure.net."), DnsQClass::IN, 300, DnsResourceRecordEnum::A(
+            String::from("akasecure.net."), DnsQType::A, DnsQClass::IN, 300, DnsResourceRecordEnum::A(
                 DnsARecord::new(Ipv4Addr::new(96,6,114,83))
             ))];
         let auvec = vec![];
