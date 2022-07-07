@@ -764,12 +764,13 @@ pub mod dns_client_lib {
     pub struct DnsCAARecord {
         critical: bool,
         tag: String,
-        value: Vec<u8>
+        value: String,
     }
 
     impl DnsCAARecord {
-        pub fn new(critical: bool, tag: String, value: Vec<u8>) -> DnsCAARecord {
+        pub fn new(critical: bool, tag: String, value: String) -> DnsCAARecord {
             // TODO validate that tag contains only A-Za-z0-9
+            // TODO validate value characters - see rfc8659.
             DnsCAARecord { critical: critical, tag: tag, value: value }
         }
 
@@ -777,9 +778,9 @@ pub mod dns_client_lib {
             let mut ret: Vec<u8> = Vec::new();
             let flagbyte: u8 = if self.critical { 0x80 } else { 0 };
             ret.push(flagbyte);
-            // TODO validate tag characters? see above
+            // TODO validate tag/value characters? see above
             ret.extend_from_slice(self.tag.as_bytes());
-            ret.extend_from_slice(self.value.as_slice());
+            ret.extend_from_slice(self.value.as_bytes());
             Ok(ret)
         }
 
@@ -810,8 +811,12 @@ pub mod dns_client_lib {
                 Err(e) => return Err(e.to_string())
             };
             o += taglen as usize;
-            let mut value: Vec<u8> = Vec::new();
-            value.extend_from_slice(&buf[o .. o + (rdlen - taglen as usize - 2)]);
+            let mut valuevec: Vec<u8> = Vec::new();
+            valuevec.extend_from_slice(&buf[o .. o + (rdlen - taglen as usize - 2)]);
+            let value = match String::from_utf8(valuevec) {
+                Ok(v) => v,
+                Err(e) => return Err(e.to_string())
+            };
             Ok((DnsCAARecord::new(flags == 0x80u8, tag, value), o - offset))
         }
     }
