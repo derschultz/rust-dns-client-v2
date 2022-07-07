@@ -331,7 +331,7 @@ mod tests {
                    Err(String::from("Got a zero-length buffer.")));
         let buf: Vec<u8> = vec![0x00];
         assert_eq!(DnsAAAARecord::from_bytes(&buf, 1),
-                   Err(String::from("Got an offset outside of the buffer.")));
+                   Err(String::from("Got an offset outside of the buffer parsing AAAA record.")));
         let buf: Vec<u8> = vec![0xAB, 0xCD, 0xEF];
         assert_eq!(DnsAAAARecord::from_bytes(&buf, 0),
                    Err(String::from("Got a buffer with too few bytes to read.")));

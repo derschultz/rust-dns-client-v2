@@ -127,6 +127,7 @@ pub mod dns_client_lib {
         AAAA = 28,
         OPT = 41,
         ANY = 255, // no associated RR struct. what would a DnsANYRecord hold?
+        CAA = 257,
         RESERVED // catch-all
     }
 
@@ -142,6 +143,7 @@ pub mod dns_client_lib {
                 28 => DnsQType::AAAA,
                 41 => DnsQType::OPT,
                 255 => DnsQType::ANY,
+                257 => DnsQType::CAA,
                 _ => DnsQType::RESERVED
             }
         }
@@ -159,6 +161,7 @@ pub mod dns_client_lib {
                 DnsQType::AAAA => write!(f, "AAAA"),
                 DnsQType::OPT => write!(f, "OPT"),
                 DnsQType::ANY => write!(f, "ANY"),
+                DnsQType::CAA => write!(f, "CAA"),
                 DnsQType::RESERVED => write!(f, "RESERVED")
             }
         }
@@ -757,6 +760,75 @@ pub mod dns_client_lib {
         }
     }
 
+    #[derive(Debug, Eq, PartialEq)]
+    pub struct DnsCAARecord {
+        critical: bool,
+        tag: String,
+        value: Vec<u8>
+    }
+
+    impl DnsCAARecord {
+        pub fn new(critical: bool, tag: String, value: Vec<u8>) -> DnsCAARecord {
+            // TODO validate that tag contains only A-Za-z0-9
+            DnsCAARecord { critical: critical, tag: tag, value: value }
+        }
+
+        pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
+            let mut ret: Vec<u8> = Vec::new();
+            let flagbyte: u8 = if self.critical { 0x80 } else { 0 };
+            ret.push(flagbyte);
+            // TODO validate tag characters? see above
+            ret.extend_from_slice(self.tag.as_bytes());
+            ret.extend_from_slice(self.value.as_slice());
+            Ok(ret)
+        }
+
+        pub fn from_bytes(buf: &Vec<u8>, offset: usize, rdlen: usize) ->
+                          Result<(DnsCAARecord, usize), String> {
+            let buflen = buf.len();
+            if buflen == 0 {
+                return Err(String::from("Got a zero-length buffer."));
+            }
+            if offset >= buflen {
+                return Err(String::from("Got an offset outside of the buffer parsing CAA record."));
+            }
+            if offset + 3 > buflen { // flag, tag len, and at least 1 tag char
+                return Err(String::from("Got too few bytes to read a CAA record."));
+            }
+            let mut o = offset;
+            let flags = buf[o];
+            o += 1;
+            let taglen = buf[o];
+            o += 1;
+            if o + taglen as usize > buflen {
+                return Err(String::from("Got too few bytes to read a CAA record tag."));
+            }
+            let mut tagvec: Vec<u8> = Vec::new();
+            tagvec.extend_from_slice(&buf[o .. o + taglen as usize]);
+            let tag = match String::from_utf8(tagvec) {
+                Ok(t) => t,
+                Err(e) => return Err(e.to_string())
+            };
+            o += taglen as usize;
+            let mut value: Vec<u8> = Vec::new();
+            value.extend_from_slice(&buf[o .. o + (rdlen - taglen as usize - 2)]);
+            Ok((DnsCAARecord::new(flags == 0x80u8, tag, value), o - offset))
+        }
+    }
+
+    impl fmt::Display for DnsCAARecord {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "CAA: ")?;
+            if self.critical {
+                write!(f, "Critical ")?;
+            } else {
+                write!(f, "Non-critical ")?;
+            }
+            write!(f, "{}: {:x?}", self.tag, self.value);
+            Ok(())
+        }
+    }
+
     /* skeleton functions for new Dns*Record
     #[derive(Debug, Eq, PartialEq)]
     pub struct DnsFOORecord {
@@ -799,6 +871,7 @@ pub mod dns_client_lib {
         TXT(DnsTXTRecord),
         AAAA(DnsAAAARecord),
         OPT(DnsOPTRecord),
+        CAA(DnsCAARecord),
         Generic(DnsGenericRecord)
         /* Generic is a string of bytes from the wire (network order), and it's meant to 
            handle records for which the struct associated with the type
@@ -816,6 +889,7 @@ pub mod dns_client_lib {
                 DnsResourceRecordEnum::TXT(rr) => write!(f, "{rr}"),
                 DnsResourceRecordEnum::AAAA(rr) => write!(f, "{rr}"),
                 DnsResourceRecordEnum::OPT(rr) => write!(f, "{rr}"),
+                DnsResourceRecordEnum::CAA(rr) => write!(f, "{rr}"),
                 DnsResourceRecordEnum::Generic(rr) => write!(f, "{rr}")
             }
         }
@@ -854,6 +928,7 @@ pub mod dns_client_lib {
                 DnsResourceRecordEnum::TXT(rr) => { rr.to_bytes()? },
                 DnsResourceRecordEnum::AAAA(rr) => { rr.to_bytes()? },
                 DnsResourceRecordEnum::OPT(rr) => { rr.to_bytes()? },
+                DnsResourceRecordEnum::CAA(rr) => { rr.to_bytes()? },
                 DnsResourceRecordEnum::Generic(rr) => { rr.to_bytes()? },
             };
             if rdata.len() > u16::MAX as usize {
@@ -941,6 +1016,10 @@ pub mod dns_client_lib {
                     let (record, _) = DnsOPTRecord::from_bytes(buf, o, rdlen as usize)?;
                     DnsResourceRecordEnum::OPT(record)
                 },
+                DnsQType::CAA => {
+                    let (record, _) = DnsCAARecord::from_bytes(buf, o, rdlen as usize)?;
+                    DnsResourceRecordEnum::CAA(record)
+                },
                 _ => {
                     let record = DnsGenericRecord::from_bytes(buf, o, rdlen as usize, typeu16)?;
                     DnsResourceRecordEnum::Generic(record)
@@ -954,7 +1033,7 @@ pub mod dns_client_lib {
 
     impl fmt::Display for DnsResourceRecord {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "{} {} ttl={} {}", self.name, self.class, self.ttl, self.record)
+            write!(f, "{} {} {} {}", self.name, self.class, self.ttl, self.record)
         }
     }
 
