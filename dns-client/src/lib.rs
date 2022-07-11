@@ -109,7 +109,7 @@ pub mod dns_client_lib {
     }
 
     /* to add support for a new qtype, a few things must be done:
-       1) add the new qtype to the DnsQType struct and its functions (from_u16, fmt)
+       1) add the new qtype to the DnsQType struct and its functions (to/from_u16, fmt)
        2) create the new struct associated with the new qtype, and its functions:
           to/from_bytes, new, fmt
           see any of the Dns*Record structs for an example of this.
@@ -118,17 +118,17 @@ pub mod dns_client_lib {
      */
     #[derive(Debug, Eq, PartialEq, Copy, Clone)]
     pub enum DnsQType {
-        A = 1,
-        NS = 2,
-        CNAME = 5,
-        SOA = 6,
-        MX = 15,
-        TXT = 16,
-        AAAA = 28,
-        OPT = 41,
-        ANY = 255, // no associated RR struct. what would a DnsANYRecord hold?
-        CAA = 257,
-        RESERVED // catch-all
+        A,
+        NS,
+        CNAME,
+        SOA,
+        MX,
+        TXT,
+        AAAA,
+        OPT,
+        ANY,
+        CAA,
+        RESERVED(u16) // catch-all
     }
 
     impl DnsQType {
@@ -144,7 +144,39 @@ pub mod dns_client_lib {
                 41 => DnsQType::OPT,
                 255 => DnsQType::ANY,
                 257 => DnsQType::CAA,
-                _ => DnsQType::RESERVED
+                other => DnsQType::RESERVED(other)
+            }
+        }
+
+        pub fn to_u16(&self) -> u16 {
+            match self {
+                DnsQType::A => 1,
+                DnsQType::NS => 2,
+                DnsQType::CNAME => 5,
+                DnsQType::SOA => 6,
+                DnsQType::MX => 15,
+                DnsQType::TXT => 16,
+                DnsQType::AAAA => 28,
+                DnsQType::OPT => 41,
+                DnsQType::ANY => 255,
+                DnsQType::CAA => 257,
+                DnsQType::RESERVED(o) => *o
+            }
+        }
+
+        pub fn from_string(s: &String) -> Result<DnsQType, String> {
+            match s.as_str() {
+                "A" | "a"  => Ok(DnsQType::A),
+                "NS" | "ns" => Ok(DnsQType::NS),
+                "CNAME" | "cname" => Ok(DnsQType::CNAME),
+                "SOA" | "soa" => Ok(DnsQType::SOA),
+                "MX" | "mx" => Ok(DnsQType::MX),
+                "TXT" | "txt" => Ok(DnsQType::TXT),
+                "AAAA" | "aaaa" => Ok(DnsQType::AAAA),
+                "OPT" | "opt" => Ok(DnsQType::OPT),
+                "ANY" | "any" => Ok(DnsQType::ANY),
+                "CAA" | "caa" => Ok(DnsQType::CAA),
+                unknown => Err(format!("Unknown query type {unknown}"))
             }
         }
     }
@@ -162,7 +194,7 @@ pub mod dns_client_lib {
                 DnsQType::OPT => write!(f, "OPT"),
                 DnsQType::ANY => write!(f, "ANY"),
                 DnsQType::CAA => write!(f, "CAA"),
-                DnsQType::RESERVED => write!(f, "RESERVED")
+                DnsQType::RESERVED(_) => write!(f, "RESERVED")
             }
         }
     }
@@ -174,7 +206,7 @@ pub mod dns_client_lib {
         HS,
         NONE,
         ANY,
-        RESERVED(u16) // any values not mentioned above.
+        RESERVED(u16) // any values not mentioned above, but also use for opt record max rcv size.
     }
 
     impl DnsQClass {
@@ -198,6 +230,17 @@ pub mod dns_client_lib {
                 DnsQClass::NONE => 254,
                 DnsQClass::ANY => 255,
                 DnsQClass::RESERVED(o) => *o
+            }
+        }
+
+        pub fn from_string(s: &String) -> Result<DnsQClass, String> {
+            match s.as_str() {
+                "IN" | "in" => Ok(DnsQClass::IN),
+                "CH" | "ch" => Ok(DnsQClass::CH),
+                "HS" | "hs" => Ok(DnsQClass::HS),
+                "NONE" | "none" => Ok(DnsQClass::NONE),
+                "ANY" | "any" => Ok(DnsQClass::ANY),
+                unknown => Err(format!("Unknown query class {unknown}"))
             }
         }
     }
@@ -231,7 +274,7 @@ pub mod dns_client_lib {
             let mut ret: Vec<u8> = Vec::new();
             let mut name_bytes = string_to_dns_name(&self.name)?;
             ret.append(&mut name_bytes); // append consumes the target
-            let qtype = self.qtype as u16;
+            let qtype = self.qtype.to_u16();
             ret.extend_from_slice(&qtype.to_be_bytes());
             let qclass = self.qclass.to_u16();
             ret.extend_from_slice(&qclass.to_be_bytes());
@@ -829,7 +872,7 @@ pub mod dns_client_lib {
             } else {
                 write!(f, "Non-critical ")?;
             }
-            write!(f, "{}: {:x?}", self.tag, self.value);
+            write!(f, "{}: {:x?}", self.tag, self.value)?;
             Ok(())
         }
     }
@@ -918,7 +961,7 @@ pub mod dns_client_lib {
         pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
             let mut ret: Vec<u8> = Vec::new();
             ret.append(&mut string_to_dns_name(&self.name)?);
-            let qtype = self.qtype as u16;
+            let qtype = self.qtype.to_u16();
             ret.extend_from_slice(&qtype.to_be_bytes());
             let qclass = self.class.to_u16();
             ret.extend_from_slice(&qclass.to_be_bytes());
