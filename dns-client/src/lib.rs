@@ -1,6 +1,9 @@
 pub mod dns_client_lib {
-    use std::net::{Ipv4Addr,Ipv6Addr};
+    use std::net::{IpAddr,Ipv4Addr,Ipv6Addr};
     use std::fmt;
+    use std::str::FromStr;
+    use cidr_utils::cidr::IpCidr;
+    use cidr_utils::cidr::IpCidr::{V4,V6};
 
     /* pages used to construct this library:
        https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
@@ -687,17 +690,55 @@ pub mod dns_client_lib {
             o += 2;
 
             if o + (optlen as usize) > buflen {
-                return Err(String::from("hit buffer bounds reading an OPT record option data."));
+                return Err(format!("hit buffer bounds reading an OPT record option data: o = {o}, optlen = {optlen}, buflen = {buflen}."));
             }
 
             let data: Vec<u8> = buf[o .. o+(optlen as usize)].to_vec();
+            o += optlen as usize;
+
             Ok((DnsOPTRecordOption::new(code, data), o - offset))
         }
     }
 
     impl fmt::Display for DnsOPTRecordOption {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "{} {:x?}", self.code, self.data)
+            match self.code {
+                8 => {
+                    let family = u16::from_be_bytes([self.data[0], self.data[1]]);
+                    let addr = match family {
+                        1 => { // v4
+                            let mut octets = [0u8, 0u8, 0u8, 0u8];
+                            let base = 4; // addr starts at 4
+                            let mut offset = 0;
+                            while (base + offset) < self.data.len() {
+                                octets[offset] = self.data[base + offset];
+                                offset += 1;
+                            }
+                            IpAddr::from(octets)
+                        },
+                        2 => { // v6
+                            let mut octets = [
+                                0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
+                                0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8
+                            ];
+                            let base = 4; // addr starts at 4
+                            let mut offset = 0;
+                            while (base + offset) < self.data.len() {
+                                octets[offset] = self.data[base + offset];
+                                offset += 1;
+                            }
+                            IpAddr::from(octets)
+                        },
+                        _ => { // unsupported for now. see iana addr family numbers.
+                            return write!(f, "{} {:x?}", self.code, self.data);
+                        }
+                    };
+                    let source = self.data[2];
+                    let scope = self.data[3];
+                    write!(f, "ECS {addr}/{source}/{scope}")
+                },
+                _ => write!(f, "{} {:x?}", self.code, self.data)
+            }
         }
     }
 
@@ -1371,6 +1412,49 @@ pub mod dns_client_lib {
         }
 
         Ok(())
+    }
+
+    pub fn make_ecs_option(subnet: &String) -> Result<DnsOPTRecordOption, String> {
+        // family, source prefix-len, scope prefix-len, addr. see rfc7871
+
+        let cidr = match IpCidr::from_str(subnet.as_str()) {
+            Ok(i) => i,
+            Err(e) => { return Err(e.to_string()); }
+        };
+
+        let mut v = match cidr { // family, from IANA address family numbers.
+            V4(_) => vec![0x00, 0x01],
+            V6(_) => vec![0x00, 0x02]
+        };
+
+        // source prefix-length. what client requests as ecs mask.
+        match subnet.find('/') {
+            Some(offset) => { // mask provided. parse it out.
+                let mask_str = &subnet[offset+1..];
+                let mask_u8 = match u8::from_str(mask_str) {
+                    Ok(u) => u,
+                    Err(e) => { return Err(e.to_string()); }
+                };
+                v.push(mask_u8);
+            },
+            None => {
+                match cidr { // no mask provided. use max mask per family.
+                    V4(_) => v.push(32u8),
+                    V6(_) => v.push(128u8)
+                }
+            }
+        }
+
+        // scope prefix-lenth. what server responds as ecs mask. in queries, is 0.
+        v.push(0u8);
+
+        // address. v4/v6. masked bits from source prefix-len must be 0.
+        match cidr {
+            V4(c) => v.extend(c.first_as_ipv4_addr().octets().to_vec()),
+            V6(c) => v.extend(c.first_as_ipv6_addr().octets().to_vec())
+        }
+
+        Ok(DnsOPTRecordOption::new(8u16, v)) // ecs is code 8 - rfc7871.
     }
 
     // given a hostname s, return the equivalent domain name in raw bytes

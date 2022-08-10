@@ -13,7 +13,9 @@ struct Arguments {
     #[clap(short='t', long, value_parser, default_value_t = String::from("A"))]
     qtype: String,
     #[clap(short='c', long, value_parser, default_value_t = String::from("IN"))]
-    qclass: String
+    qclass: String,
+    #[clap(short='u', long, value_parser)]
+    subnet: Option<String>
 }
 
 fn make_query(args: &Arguments) -> Result<DnsQuery, String> {
@@ -29,8 +31,12 @@ fn make_query(args: &Arguments) -> Result<DnsQuery, String> {
     let qrv : Vec<DnsQuestionRecord> =
         vec![DnsQuestionRecord::new(args.qname.clone(), qtype, qclass)];
 
-    // add on the opt RR to let them know we can handle big packets
-    let optr = DnsOPTRecord::new(vec![]);
+    // add on the opt RR to let them know we can handle big packets (4kB)
+    // and add on the ecs subnet if specified.
+    let optr = match &args.subnet {
+        Some(subnet) => DnsOPTRecord::new(vec![make_ecs_option(&subnet)?]),
+        None => DnsOPTRecord::new(vec![])
+    };
     let addv : Vec<DnsResourceRecord> =
         vec![DnsResourceRecord::new(String::from("."), DnsQType::OPT,
              DnsQClass::RESERVED(4096u16), 0, DnsResourceRecordEnum::OPT(optr))];
